@@ -7,7 +7,7 @@ import (
 	"github.com/frendyardiansyah31/rfid-middleware/internal/cache"
 )
 
-// RemoteLookup is the request-time authoritative status source (SLiMS).
+// RemoteLookup is the request-time authoritative status source (Koha).
 //
 // The three return shapes are distinct and every implementation MUST honour
 // them — error is never a stand-in for "not found":
@@ -20,7 +20,7 @@ type RemoteLookup interface {
 }
 
 // ErrRemoteUnavailable is what the default no-op lookup returns when no remote
-// is wired (SLiMS disabled or MySQL not initialised). The engine treats it like
+// is wired (Koha not configured). The engine treats it like
 // any other remote error and falls through to the local mirror.
 var ErrRemoteUnavailable = errors.New("remote lookup unavailable")
 

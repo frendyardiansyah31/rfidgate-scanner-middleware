@@ -13,17 +13,15 @@ import (
 
 type HealthHandler struct {
 	sqliteDB     *sql.DB
-	mysqlDB      *sql.DB // nil when SLiMS sync is disabled (cfg.Slims.Enabled = false)
 	syncer       *biblio.Syncer
 	log          logger.Logger
-	healthURL    string // full library app probe URL (SLiMS ?p=api/health or Koha rfid_gate/health); "" = disabled
+	healthURL    string // full Koha probe URL (rfid_gate/health); "" = disabled
 	httpClient   *http.Client
 }
 
-func NewHealthHandler(sqliteDB *sql.DB, mysqlDB *sql.DB, syncer *biblio.Syncer, log logger.Logger, healthURL string) *HealthHandler {
+func NewHealthHandler(sqliteDB *sql.DB, syncer *biblio.Syncer, log logger.Logger, healthURL string) *HealthHandler {
 	return &HealthHandler{
 		sqliteDB:     sqliteDB,
-		mysqlDB:      mysqlDB,
 		syncer:       syncer,
 		log:          log,
 		healthURL:    healthURL,
@@ -34,8 +32,7 @@ func NewHealthHandler(sqliteDB *sql.DB, mysqlDB *sql.DB, syncer *biblio.Syncer, 
 type healthReport struct {
 	Status                   string  `json:"status"` // "ok" | "degraded"
 	SQLite                   string  `json:"sqlite"`
-	SlimsMySQL               string  `json:"slims_mysql"`
-	SlimsAPI                 string  `json:"slims_api"` // library app reachability (SLiMS or Koha, per library.backend); key kept for dashboard compatibility
+	SlimsAPI                 string  `json:"slims_api"` // Koha reachability; the key keeps its old name because the dashboards read it
 	BiblioLastSyncMinutesAgo *int    `json:"biblio_last_sync_minutes_ago"`
 	BiblioLastSyncError      *string `json:"biblio_last_sync_error"`
 }
@@ -54,21 +51,6 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 		report.SQLite = "ok"
 	}
 
-	if h.mysqlDB == nil {
-		report.SlimsMySQL = "disabled"
-	} else {
-		mysqlCtx, mysqlCancel := context.WithTimeout(r.Context(), 3*time.Second)
-		defer mysqlCancel()
-
-		if err := h.mysqlDB.PingContext(mysqlCtx); err != nil {
-			report.SlimsMySQL = "unreachable: " + err.Error()
-			report.Status = "degraded"
-			h.log.Warn("health check: slims mysql unreachable", logger.F("error", err))
-		} else {
-			report.SlimsMySQL = "ok"
-		}
-	}
-
 	if h.healthURL == "" {
 		report.SlimsAPI = "disabled"
 	} else {
@@ -82,7 +64,7 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 		} else if resp, err := h.httpClient.Do(req); err != nil {
 			report.SlimsAPI = "unreachable: " + err.Error()
 			report.Status = "degraded"
-			h.log.Warn("health check: slims api unreachable", logger.F("error", err))
+			h.log.Warn("health check: koha unreachable", logger.F("error", err))
 		} else {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {

@@ -31,9 +31,6 @@ koha_api:
   biblio_sync_interval_minutes: 10   # judul dan cover
   biblio_full_sync_hours: 24
 
-slims:
-  enabled: false      # SLiMS deprecated
-
 log:
   level: "info"
 

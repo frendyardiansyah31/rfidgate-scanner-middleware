@@ -1,14 +1,14 @@
 # RFID Edge Service Middleware
 
 ## Overview
-The **RFID Edge Service Middleware** is a local Go-based API designed to act as an intermediary between RFID Gate Hardware (C#) and a Remote Server (e.g., SLiMS via MySQL) as well as Frontend Dashboards (Svelte/Web UI). 
+The **RFID Edge Service Middleware** is a local Go-based API designed to act as an intermediary between RFID Gate Hardware (C#) and a Remote Server (Koha, via the RfidGateApi plugin) as well as Frontend Dashboards (Svelte/Web UI). 
 
-This middleware ensures that the RFID scanning process remains fast, reliable, and capable of functioning even when the connection to the main SLiMS database is lost (Offline Mode). It handles RFID validation, logging, queuing, background synchronization, and caching.
+This middleware ensures that the RFID scanning process remains fast, reliable, and capable of functioning even when the connection to Koha is lost (Offline Mode). It handles RFID validation, logging, and an offline mirror of loan status that is kept in step with Koha in the background.
 
 ## Key Features
 - **Offline Support:** Uses a local SQLite database to cache valid RFID tags and store scan events when offline.
 - **Fast Validation:** Validates RFID scans in milliseconds using an in-memory and SQLite caching layer.
-- **Background Synchronization:** Automatically synchronizes offline scan events to the central SLiMS MySQL database when the connection is restored.
+- **Koha Mirror:** Every scan is looked up in Koha first; a local mirror of loan status (delta sync every minute, full sync every few hours) answers when Koha is unreachable. Titles and covers are mirrored the same way.
 - **Decision Engine:** Determines whether an RFID tag should trigger an alarm based on validation rules.
 - **OpenAPI Compliant:** Exposes a documented REST API for hardware integration and dashboard monitoring.
 
@@ -74,52 +74,28 @@ c:\frendy-project\golang-rfid-middleware
 │   ├── queue/                # Event Queuing
 │   │   └── event_queue.go         # In-memory queue for offline events waiting to be synced.
 │   │
-│   ├── repository/           # Data Access Layer
-│   │   ├── rfid_repository.go     # Repository interface for RFID data.
-│   │   └── sqlite/                
-│   │       └── rfid_repository.go # SQLite specific RFID data queries.
-│   │
-│   ├── startup/              # Application Bootstrapping & Background Tasks
-│   │   ├── delta_sync.go          # Periodic sync of latest updates from SLiMS.
-│   │   ├── flush_offline.go       # Sends locally cached events to main server on startup.
-│   │   ├── initial_pull.go        # Initial data download from SLiMS DB.
-│   │   ├── offline_flush.go       # Dedicated logic for flushing offline queue.
-│   │   ├── runner.go              # Orchestrates startup sync and periodic sync jobs.
-│   │   ├── runner_test.go         # Tests for startup jobs.
-│   │   └── warm_cache.go          # Pre-loads SQLite data into in-memory cache at boot.
-│   │
-│   ├── sync/                 # Synchronization Engine (Edge to Cloud/Main DB)
-│   │   ├── constant.go            # Sync constants.
-│   │   ├── health.go              # Database connectivity checks.
-│   │   ├── mysql_state.go         # MySQL specific connection state tracking.
-│   │   ├── mysql_sync.go          # Logic to write events to the SLiMS MySQL database.
-│   │   ├── noop_sync.go           # Dummy sync for standalone/testing mode.
+│   ├── sync/                 # Event pipeline
+│   │   ├── event_sink.go          # EventSink interface (where published scan events go).
+│   │   ├── noop_sync.go           # NoopSink: discards events (Koha needs no write-back).
 │   │   ├── offilne_schema.sql     # Database schema for the offline event queue.
 │   │   ├── offline_sqlite.go      # Implementation of offline storage in SQLite.
 │   │   ├── offline_store.go       # Interfaces for offline storage.
-│   │   ├── retry.go               # Retry logic mechanism.
-│   │   ├── retrying_sync.go       # Wrapper to add retry capabilities to sync operations.
-│   │   ├── slims_pull.go          # Fetches delta/updates from SLiMS MySQL.
-│   │   ├── slims_sync.go          # Interfaces defining SLiMS sync operations.
-│   │   ├── sqlite_history_repository.go # Adapters for history sync.
-│   │   └── worker.go              # Background worker thread consuming event queue to sync.
-│   │
-│   └── usecase/              # Application Use Cases
-│       └── sync_rfid.go           # Orchestrates the process of syncing RFID data.
+│   │   ├── sqlite_history_repository.go # Adapters for history storage.
+│   │   └── worker.go              # Background worker consuming the event queue.
 │
 ├── .gitignore                # Git ignore rules.
 ├── apispec.yaml              # OpenAPI 3.0.3 specification for the REST API endpoints.
-├── config.yaml               # Runtime configuration parameters.
+├── config.koha.example.yaml  # Config template (no secrets). Copy to config.yaml and fill in koha_api.*.
 ├── go.mod / go.sum           # Go module dependency tracking files.
 └── main.go                   # Main entry point. Wires up dependencies and starts the HTTP server.
 ```
 
 ## How It Works
-1. **Startup**: The application loads the configuration, initializes the `zap` logger, connects to local SQLite, and attempts to connect to the remote SLiMS MySQL server.
-2. **Warmup & Sync**: `startup.Runner` executes. It runs a delta pull from SLiMS, loads RFID tags into the local SQLite cache, warms up the fast in-memory cache, and flushes any pending offline logs to the central server.
-3. **RFID Scan**: A hardware reader hits `/rfid/check`. The `decision.Engine` checks the in-memory/SQLite cache. If the tag is valid, access is allowed. Otherwise, it commands the hardware to trigger an alarm.
-4. **History & Queue**: The scan event is saved to the local SQLite `history` table (for the dashboard) and placed into an in-memory `queue`.
-5. **Worker**: A background worker picks up the event from the queue and sends it to the central SLiMS database. If the network is down, the event goes into the `offline_store` (SQLite) and is retried later.
+1. **Startup**: The application loads the configuration, initializes the `zap` logger and the local SQLite database, and starts the Koha clients.
+2. **Mirror sync**: `mirror` warms the in-memory cache from SQLite, then syncs loan status from Koha (`GET /rfid/status`, delta and periodic full). The `biblio` syncer mirrors titles and covers (`GET /rfid/biblio`).
+3. **RFID Scan**: A hardware reader hits `/rfid/check`. The `decision.Engine` asks Koha first (short timeout, no retry). If Koha is unreachable it falls back to the in-memory/SQLite mirror. A loaned item is allowed, a not-loaned item raises the alarm, and an unknown tag (wallet, clothes) is allowed with no trace.
+4. **History**: A known tag's scan is saved to the local SQLite `gate_logs` table (for the dashboard) and pushed to the live SSE stream.
+5. **Event queue**: The decision is also published to an in-memory queue consumed by a worker. Koha needs nothing pushed back, so the sink discards the events today.
 
 ---
 
@@ -168,7 +144,7 @@ deploy\
 └── watchdog\            ← only with -IncludeWatchdog
 ```
 
-The `deploy\` folder is recreated on every run and is git-ignored. `config.yaml` contains the MySQL DSN, so treat the folder as sensitive. Copy it to the target PC (e.g. `C:\rfid-middleware`) and run `install.bat` as Administrator. See `DEPLOYMENT_GUIDE.md` for details.
+The `deploy\` folder is recreated on every run and is git-ignored. `config.yaml` contains the Koha API key, so treat the folder as sensitive. Copy it to the target PC (e.g. `C:\rfid-middleware`) and run `install.bat` as Administrator. See `DEPLOYMENT_GUIDE.md` for details.
 
 ### 2. Configure
 
@@ -182,9 +158,9 @@ server:
 sqlite:
   path: "edge.db"
 
-slims:
-  mysql_dsn: "user:password@tcp(host:3306)/dbname?parseTime=true"
-  enabled: true
+koha_api:
+  base_url: "https://<koha-host>/api/v1/contrib/rfid_gate"
+  api_key: "<middleware API key>"
 
 log:
   level: "info"

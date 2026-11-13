@@ -10,7 +10,7 @@ import (
 	"github.com/frendyardiansyah31/rfid-middleware/internal/rfidtag"
 )
 
-// defaultRemoteTimeout caps the request-time SLiMS lookup. The gate is
+// defaultRemoteTimeout caps the request-time Koha lookup. The gate is
 // latency-sensitive, so a slow/broken remote must flip to the local mirror
 // fast — no retry loop on this path.
 const defaultRemoteTimeout = 400 * time.Millisecond
@@ -36,7 +36,7 @@ func NewEngine(
 	return NewEngineWithRemote(nil, cache, queue, history, timeout)
 }
 
-// NewEngineWithRemote wires a request-time authoritative lookup (SLiMS). A nil
+// NewEngineWithRemote wires a request-time authoritative lookup (Koha). A nil
 // remote falls back to unreachableRemote, so the local mirror is used.
 func NewEngineWithRemote(
 	remote RemoteLookup,
@@ -165,10 +165,10 @@ func (e *EngineImpl) safePublish(rfid string, status cache.Status) {
 
 func (e *EngineImpl) applyDecision(rfid string, decision int) {
 	// Mapping decision → cache status (adapter, dipakai untuk publish ke queue saja —
-	// TIDAK ditulis balik ke e.cache: rfid_status adalah ground truth dari sync SLiMS
+	// TIDAK ditulis balik ke e.cache: rfid_status adalah ground truth dari sync Koha
 	// (single source of truth), gate tidak boleh menimpanya. Menulis balik di sini pernah
 	// menyebabkan bug: rfid mentah yang di-scan gate membuat entry cache baru yang
-	// membajak lookup untuk selamanya, mengoverride data SLiMS yang sebenarnya lebih baru.
+	// membajak lookup untuk selamanya, mengoverride data Koha yang sebenarnya lebih baru.
 	status := ToCacheStatus(decision)
 
 	// Publish ke queue (non-blocking)

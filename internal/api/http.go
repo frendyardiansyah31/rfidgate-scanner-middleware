@@ -32,7 +32,6 @@ func NewHTTPServer(
 	broker *SSEBroker,
 	syncer *biblio.Syncer,
 	sqliteDB *sql.DB,
-	mysqlDB *sql.DB,
 	libraryHealthURL string,
 	webDir string,
 	webFS fs.FS,
@@ -41,7 +40,7 @@ func NewHTTPServer(
 	handler := NewRFIDHandler(engine, logger)
 	dashboard := NewDashboardHandler(history, broker)
 	admin := NewAdminHandler(syncer)
-	health := NewHealthHandler(sqliteDB, mysqlDB, syncer, logger, libraryHealthURL)
+	health := NewHealthHandler(sqliteDB, syncer, logger, libraryHealthURL)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", corsMiddleware(health.Check))

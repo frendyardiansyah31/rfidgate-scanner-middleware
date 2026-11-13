@@ -35,7 +35,7 @@ masuk `.gitignore`. Script berhenti dengan error kalau file wajib tidak ada atau
 Catatan:
 - `go build` gagal menimpa `rfid-middleware.exe` kalau prosesnya sedang jalan — hentikan dulu
   atau pakai `-SkipBuild`.
-- `config.yaml` berisi password MySQL di `mysql_dsn`; jaga folder `deploy\` baik-baik dan
+- `config.yaml` berisi API key Koha di `koha_api.api_key`; jaga folder `deploy\` baik-baik dan
   periksa isinya sebelum dibawa ke PC target.
 
 Setelah itu copy seluruh isi `deploy\` ke PC target (langkah 2) dan lanjut ke langkah 3.
@@ -52,8 +52,8 @@ Satu folder tetap berisi:
   folder `web\`; `web\src` dan `web\tools` hanya untuk build CSS di PC dev). Lihat langkah 3
   untuk setting `web.dir`.
 - `edge.db` — opsional, tidak wajib dibawa. Dibuat otomatis oleh `modernc.org/sqlite`
-  saat pertama kali jalan, lalu di-backfill otomatis dari SLiMS MySQL (full pull ~1-2 menit
-  di background, service tetap melayani request selama proses ini).
+  saat pertama kali jalan, lalu di-backfill otomatis dari Koha (full sync mirror di background, service
+  tetap melayani request selama proses ini).
 
 Struktur folder deploy:
 
@@ -100,18 +100,15 @@ sqlite:
 queue:
   size: 1000
 
-slims:
-  mysql_dsn: "user:pass@tcp(host:3306)/db?parseTime=true"
-  enabled: true       # set false kalau PC target belum/tidak punya akses ke MySQL SLiMS —
-                       # service tetap jalan standalone/offline mode
+library:
+  backend: "koha"      # opsional dan diabaikan; Koha satu-satunya backend
+
+koha_api:
+  base_url: "https://<koha-host>/api/v1/contrib/rfid_gate"   # tanpa slash di akhir
+  api_key: ""          # X-API-Key middleware (halaman konfigurasi plugin Koha)
 
 log:
   level: "info"
-
-slims_api:
-  base_url: "https://catalogue.uiii.ac.id"
-  token: ""
-  sync_interval_hours: 1
 
 web:
   dir: 'C:\rfid-middleware\web\dist'   # path ABSOLUT ke folder frontend dashboard.
@@ -160,7 +157,7 @@ curl http://127.0.0.1:3000/health
 Response sehat:
 
 ```json
-{"success":true,"code":"OK","message":"health check","data":{"status":"ok","sqlite":"ok","slims_mysql":"ok",...}}
+{"success":true,"code":"OK","message":"health check","data":{"status":"ok","sqlite":"ok","slims_api":"ok",...}}
 ```
 
 Dashboard: buka `http://127.0.0.1:3000/` di browser PC gate. Kalau halaman kosong/404 dan
@@ -183,7 +180,7 @@ Level yang ada: `debug` (kalau `log.level: debug`), `info`, `warn`, `error`, `fa
 Data sync juga tercatat di log ini, contoh entri yang dicari:
 
 - `"msg":"sync completed"` (field `processed`) — jumlah RFID/rfid_item yang di-delta-sync
-- `"msg":"biblio sync completed"` (field `upserted`, `total_in_db`) — hasil full sync biblio dari SLiMS
+- `"msg":"biblio sync completed"` (field `upserted`, `total_in_db`) — hasil sync judul dan cover dari Koha
 
 ## 7. Stop / uninstall
 

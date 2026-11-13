@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net"
 	"net/http"
@@ -21,20 +20,16 @@ import (
 	"github.com/frendyardiansyah31/rfid-middleware/internal/logger"
 	"github.com/frendyardiansyah31/rfid-middleware/internal/mirror"
 	"github.com/frendyardiansyah31/rfid-middleware/internal/queue"
-	"github.com/frendyardiansyah31/rfid-middleware/internal/repository/sqlite"
 	"github.com/frendyardiansyah31/rfid-middleware/internal/serverinfo"
-	"github.com/frendyardiansyah31/rfid-middleware/internal/startup"
 	"github.com/frendyardiansyah31/rfid-middleware/internal/sync"
-	"github.com/frendyardiansyah31/rfid-middleware/internal/usecase"
 	"github.com/frendyardiansyah31/rfid-middleware/web"
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/kardianos/service"
 )
 
 const (
 	svcName        = "RFIDMiddleware"
 	svcDisplayName = "RFID Edge Service Middleware"
-	svcDescription = "RFID gate middleware with SLiMS sync and offline support"
+	svcDescription = "RFID gate middleware with Koha lookup and offline mirror"
 )
 
 type program struct {
@@ -103,148 +98,60 @@ func run(ctx context.Context, exeDir string) {
 	notifyingRepo := history.NewNotifyingRepository(historyRepo, broker)
 	enrichingRepo := history.NewEnrichingRepository(notifyingRepo, biblio.NewSQLiteEnricher(sqliteCache.DB(), biblioDB))
 
-	useKoha := cfg.Library.Backend == "koha"
-
-	var slimsSync sync.SlimsSync
-	var db *sql.DB
-
-	if cfg.Slims.Enabled && !useKoha {
-		db, err = sql.Open("mysql", cfg.Slims.MySQLDSN)
-		if err != nil {
-			log.Warn("mysql disabled, fallback to offline mode", logger.F("error", err))
-			slimsSync = sync.NewNoopSync()
-		} else {
-			db.SetMaxOpenConns(25)
-			db.SetMaxIdleConns(25)
-			db.SetConnMaxLifetime(5 * time.Minute)
-
-			log.Info("mysql client initialized, sync will attempt to connect in background")
-
-			base := sync.NewMySQLSync(db, log)
-			slimsSync = sync.NewRetryingSync(base)
-
-			rfidRepo, err := sqlite.NewRFIDRepository(sqliteCache.DB())
-			if err != nil {
-				log.Fatal("failed to init rfid repo", logger.F("error", err))
-			}
-
-			syncUseCase := usecase.NewSyncRFIDUseCase(slimsSync, rfidRepo, cacheRepo, log)
-
-			runner := startup.NewRunner(cacheRepo, slimsSync, offlineStore, syncUseCase, log)
-
-			startupCtx, startupCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-
-			go func() {
-				defer startupCancel()
-				if err := runner.Run(startupCtx); err != nil {
-					log.Error("startup recovery failed", logger.F("error", err))
-				}
-			}()
-
-			go func() {
-				time.Sleep(1 * time.Minute)
-
-				interval := 1 * time.Minute
-				ticker := time.NewTicker(interval)
-				defer ticker.Stop()
-
-				log.Info("periodic sync started", logger.F("interval", interval))
-
-				for {
-					select {
-					case <-ctx.Done():
-						log.Info("periodic sync stopped")
-						return
-					case <-ticker.C:
-						// Use the run context so an in-flight PullDelta unwinds on
-						// shutdown instead of parking in sync.Retry forever.
-						if err := runner.PerformDeltaSync(ctx); err != nil {
-							log.Error("periodic sync failed", logger.F("error", err))
-						}
-					}
-				}
-			}()
-		}
-	} else {
-		log.Info("mysql sync is disabled, running in standalone mode", logger.F("library_backend", cfg.Library.Backend))
-		slimsSync = sync.NewNoopSync()
+	// Request-time authoritative lookup: Koha (RfidGateApi plugin) first on every
+	// /rfid/check; the offline mirror below answers when Koha is down or slow.
+	if cfg.KohaAPI.BaseURL == "" || cfg.KohaAPI.APIKey == "" {
+		// Not fatal: the gate keeps answering (unknown tags are allowed), but nothing can be
+		// looked up or synced until both are set. Say so plainly instead of leaving only the
+		// obscure per-request "unsupported protocol scheme" errors.
+		log.Warn("koha_api.base_url and/or koha_api.api_key are empty in config.yaml: no lookups or syncs will work until they are set",
+			logger.F("base_url_set", cfg.KohaAPI.BaseURL != ""),
+			logger.F("api_key_set", cfg.KohaAPI.APIKey != ""),
+		)
 	}
+	kohaClient := koha.NewRemoteLookup(cfg.KohaAPI.BaseURL, cfg.KohaAPI.APIKey)
+	log.Info("request-time remote lookup enabled (koha rfid_gate api)", logger.F("base_url", cfg.KohaAPI.BaseURL))
 
-	// Request-time authoritative lookup. When SLiMS MySQL is wired the engine
-	// hits it first on every /rfid/check; otherwise it goes straight to the
-	// local memory/SQLite mirror.
-	var remoteLookup decision.RemoteLookup
-	var kohaClient *koha.RemoteLookup
-	if useKoha {
-		if cfg.KohaAPI.BaseURL == "" || cfg.KohaAPI.APIKey == "" {
-			// Not fatal: the gate keeps answering (unknown tags are allowed), but nothing can be
-			// looked up or synced until both are set. Say so plainly instead of leaving only the
-			// obscure per-request "unsupported protocol scheme" errors.
-			log.Warn("koha backend selected but koha_api.base_url and/or koha_api.api_key are empty in config.yaml: no lookups or syncs will work until they are set",
-				logger.F("base_url_set", cfg.KohaAPI.BaseURL != ""),
-				logger.F("api_key_set", cfg.KohaAPI.APIKey != ""),
-			)
-		}
-		kohaClient = koha.NewRemoteLookup(cfg.KohaAPI.BaseURL, cfg.KohaAPI.APIKey)
-		remoteLookup = kohaClient
-		log.Info("request-time remote lookup enabled (koha rfid_gate api)", logger.F("base_url", cfg.KohaAPI.BaseURL))
-
-		// Offline mirror: keeps rfid_status/rfid_item in step with Koha so a scan
-		// can still be decided when Koha is down or slow.
-		mir, err := mirror.New(sqliteCache.DB(), cacheRepo, kohaClient, log, mirror.Config{
-			DeltaEvery: time.Duration(cfg.KohaAPI.SyncIntervalSeconds) * time.Second,
-			FullEvery:  time.Duration(cfg.KohaAPI.FullSyncHours) * time.Hour,
-			Overlap:    time.Duration(cfg.KohaAPI.OverlapMinutes) * time.Minute,
-		})
-		if err != nil {
-			log.Fatal("failed to init mirror", logger.F("error", err))
-		}
-		mir.Start(ctx)
-	} else if db != nil {
-		remoteLookup = sync.NewMySQLRemoteLookup(db, log)
-		log.Info("request-time remote lookup enabled (slims mysql)")
-	} else {
-		log.Info("request-time remote lookup disabled, using local mirror only")
+	// Offline mirror: keeps rfid_status/rfid_item in step with Koha so a scan
+	// can still be decided when Koha is down or slow.
+	mir, err := mirror.New(sqliteCache.DB(), cacheRepo, kohaClient, log, mirror.Config{
+		DeltaEvery: time.Duration(cfg.KohaAPI.SyncIntervalSeconds) * time.Second,
+		FullEvery:  time.Duration(cfg.KohaAPI.FullSyncHours) * time.Hour,
+		Overlap:    time.Duration(cfg.KohaAPI.OverlapMinutes) * time.Minute,
+	})
+	if err != nil {
+		log.Fatal("failed to init mirror", logger.F("error", err))
 	}
+	mir.Start(ctx)
 
 	engine := decision.NewEngineWithRemote(
-		remoteLookup,
+		kohaClient,
 		cacheRepo,
 		eventQueue,
 		enrichingRepo,
 		1*time.Second,
 	)
 
-	worker := sync.NewWorker(eventQueue, slimsSync, offlineStore, log)
+	// Consumes the engine's event queue. Koha needs no scan events pushed back, so
+	// the sink discards them; the worker and offline store remain as the seam for a
+	// future "send scan history to Koha" sink.
+	worker := sync.NewWorker(eventQueue, sync.NewNoopSink(), offlineStore, log)
 	worker.Start(ctx)
 
-	var biblioSyncer *biblio.Syncer
-	if useKoha {
-		// Title and cover metadata from the Koha plugin (GET /rfid/biblio): delta
-		// syncs plus a periodic full sync that prunes deleted items.
-		biblioSyncer = biblio.NewDeltaSyncer(biblio.NewKohaFetcher(kohaClient), biblioDB, log, biblio.DeltaConfig{
-			DeltaEvery: time.Duration(cfg.KohaAPI.BiblioSyncIntervalMinutes) * time.Minute,
-			FullEvery:  time.Duration(cfg.KohaAPI.BiblioFullSyncHours) * time.Hour,
-			Overlap:    time.Duration(cfg.KohaAPI.OverlapMinutes) * time.Minute,
-		})
-	} else {
-		var biblioFetcher biblio.Fetcher
-		if db != nil {
-			biblioFetcher = biblio.NewMySQLFetcher(db)
-		}
-		biblioSyncer = biblio.NewSyncer(biblioFetcher, biblioDB, log)
-	}
-	biblioSyncer.Start(ctx, cfg.SlimsAPI.SyncIntervalHours)
+	// Title and cover metadata from the Koha plugin (GET /rfid/biblio): delta
+	// syncs plus a periodic full sync that prunes deleted items.
+	biblioSyncer := biblio.NewDeltaSyncer(biblio.NewKohaFetcher(kohaClient), biblioDB, log, biblio.DeltaConfig{
+		DeltaEvery: time.Duration(cfg.KohaAPI.BiblioSyncIntervalMinutes) * time.Minute,
+		FullEvery:  time.Duration(cfg.KohaAPI.BiblioFullSyncHours) * time.Hour,
+		Overlap:    time.Duration(cfg.KohaAPI.OverlapMinutes) * time.Minute,
+	})
+	biblioSyncer.Start(ctx)
 
-	// Library app reachability probe shown on the dashboard. JSON key stays
-	// "slims_api" for dashboard compatibility regardless of backend.
+	// Koha reachability probe shown on the dashboard (JSON key stays "slims_api"
+	// because the dashboards read it).
 	libraryHealthURL := ""
-	if useKoha {
-		if cfg.KohaAPI.BaseURL != "" {
-			libraryHealthURL = strings.TrimRight(cfg.KohaAPI.BaseURL, "/") + "/health"
-		}
-	} else if cfg.SlimsAPI.BaseURL != "" {
-		libraryHealthURL = cfg.SlimsAPI.BaseURL + "/?p=api/health"
+	if cfg.KohaAPI.BaseURL != "" {
+		libraryHealthURL = strings.TrimRight(cfg.KohaAPI.BaseURL, "/") + "/health"
 	}
 
 	server := api.NewHTTPServer(
@@ -255,7 +162,6 @@ func run(ctx context.Context, exeDir string) {
 		broker,
 		biblioSyncer,
 		sqliteCache.DB(),
-		db,
 		libraryHealthURL,
 		cfg.Web.Dir,
 		web.FS(),
@@ -275,7 +181,6 @@ func run(ctx context.Context, exeDir string) {
 	}
 	info := serverinfo.Info{
 		Addr:    server.Addr,
-		Backend: cfg.Library.Backend,
 		Config:  filepath.Dir(cfg.SQLite.Path), // config.yaml and edge.db live together
 		LogFile: logPath,
 		Running: true,
@@ -332,11 +237,6 @@ func run(ctx context.Context, exeDir string) {
 		log.Info("queue drained successfully")
 	} else {
 		log.Info("no pending events in queue")
-	}
-
-	if db != nil {
-		log.Info("closing mysql connection")
-		_ = db.Close()
 	}
 
 	log.Info("closing sqlite connection")

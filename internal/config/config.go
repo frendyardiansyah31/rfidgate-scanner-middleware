@@ -12,9 +12,6 @@ type Config struct {
 	Cache  CacheConfig  `mapstructure:"cache"`
 	SQLite SQLiteConfig `mapstructure:"sqlite"`
 	Queue  QueueConfig  `mapstructure:"queue"`
-	Slims    SlimsConfig    `mapstructure:"slims"`
-	SlimsAPI SlimsAPIConfig `mapstructure:"slims_api"`
-	Library  LibraryConfig  `mapstructure:"library"`
 	KohaAPI  KohaAPIConfig  `mapstructure:"koha_api"`
 	Log      LogConfig      `mapstructure:"log"`
 	Web      WebConfig      `mapstructure:"web"`
@@ -42,23 +39,6 @@ type SQLiteConfig struct {
 
 type QueueConfig struct {
 	Size int `mapstructure:"size"`
-}
-
-type SlimsConfig struct {
-	MySQLDSN string `mapstructure:"mysql_dsn"`
-	Enabled  bool   `mapstructure:"enabled"`
-}
-
-type SlimsAPIConfig struct {
-	BaseURL           string `mapstructure:"base_url"`
-	Token             string `mapstructure:"token"`
-	SyncIntervalHours int    `mapstructure:"sync_interval_hours"`
-}
-
-// LibraryConfig selects the request-time lookup backend: "slims" (default,
-// direct MySQL) or "koha" (RfidGateApi plugin over HTTP).
-type LibraryConfig struct {
-	Backend string `mapstructure:"backend"`
 }
 
 // KohaAPIConfig points at the Koha RfidGateApi plugin namespace root, e.g.
@@ -133,13 +113,8 @@ func setDefaults() {
 
 	viper.SetDefault("log.level", "info")
 
-	viper.SetDefault("slims_api.base_url", "")
-	viper.SetDefault("slims_api.token", "")
-	viper.SetDefault("slims_api.sync_interval_hours", 6)
-
 	viper.SetDefault("web.dir", "")
 
-	viper.SetDefault("library.backend", "slims")
 	viper.SetDefault("koha_api.base_url", "")
 	viper.SetDefault("koha_api.api_key", "")
 	viper.SetDefault("koha_api.sync_interval_seconds", 60)

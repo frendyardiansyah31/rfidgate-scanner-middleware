@@ -61,22 +61,16 @@ func (c *DeltaConfig) setDefaults() {
 const kohaTimeFormat = "2006-01-02 15:04:05"
 
 type Syncer struct {
-	fetcher  Fetcher
 	repo     Repository
 	log      logger.Logger
 	mu       sync.Mutex
 	statusMu sync.RWMutex
 	status   SyncStatus
 
-	// delta mode (optional); when set it is used instead of fetcher.
 	delta     DeltaFetcher
 	stateRepo StateRepo
 	cfg       DeltaConfig
 	now       func() time.Time
-}
-
-func NewSyncer(fetcher Fetcher, repo Repository, log logger.Logger) *Syncer {
-	return &Syncer{fetcher: fetcher, repo: repo, log: log, now: time.Now}
 }
 
 // NewDeltaSyncer builds a syncer that keeps the table in step with a
@@ -93,35 +87,16 @@ func (s *Syncer) Status() SyncStatus {
 	return s.status
 }
 
-func (s *Syncer) enabled() bool { return s.fetcher != nil || s.delta != nil }
+func (s *Syncer) enabled() bool { return s.delta != nil }
 
-// Start runs an initial sync and schedules periodic syncs on intervalHours.
-// In delta mode the schedule comes from DeltaConfig instead and intervalHours is
-// ignored.
-func (s *Syncer) Start(ctx context.Context, intervalHours int) {
+// Start runs an initial sync and then syncs on the DeltaConfig schedule
+// (delta every DeltaEvery, full when the last full sync is older than FullEvery).
+func (s *Syncer) Start(ctx context.Context) {
 	if !s.enabled() {
 		s.log.Warn("biblio sync disabled: no source available")
 		return
 	}
-	if s.delta != nil {
-		s.startDelta(ctx)
-		return
-	}
-	s.log.Info("biblio sync scheduled", logger.F("interval_hours", intervalHours))
-	go s.RunOnce(context.Background())
-
-	go func() {
-		ticker := time.NewTicker(time.Duration(intervalHours) * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.RunOnce(context.Background())
-			}
-		}
-	}()
+	s.startDelta(ctx)
 }
 
 func (s *Syncer) startDelta(ctx context.Context) {
@@ -172,13 +147,7 @@ func (s *Syncer) syncInner(ctx context.Context, forceFull bool) error {
 	start := s.now()
 	s.log.Info("biblio sync started")
 
-	var upserted int
-	var err error
-	if s.delta != nil {
-		upserted, err = s.runDelta(ctx, forceFull)
-	} else {
-		upserted, err = s.run(ctx)
-	}
+	upserted, err := s.runDelta(ctx, forceFull)
 	elapsed := s.now().Sub(start).Round(time.Millisecond)
 
 	if err != nil {
@@ -277,32 +246,6 @@ func (s *Syncer) checkFull(got, total, existing int) error {
 			got, existing, s.cfg.MinKeepRatio*100)
 	}
 	return nil
-}
-
-func (s *Syncer) run(ctx context.Context) (upserted int, err error) {
-	entries, err := s.fetcher.FetchAll(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	s.log.Info("biblio sync: fetched from MySQL", logger.F("count", len(entries)))
-
-	for _, e := range entries {
-		if upsertErr := s.repo.Upsert(e); upsertErr != nil {
-			s.log.Warn("biblio sync: upsert failed",
-				logger.F("item_code", e.ItemCode),
-				logger.F("error", upsertErr),
-			)
-		} else {
-			upserted++
-		}
-
-		if upserted > 0 && upserted%500 == 0 {
-			s.log.Info("biblio sync progress", logger.F("upserted", upserted))
-		}
-	}
-
-	return upserted, nil
 }
 
 func (s *Syncer) setStatus(fn func(*SyncStatus)) {

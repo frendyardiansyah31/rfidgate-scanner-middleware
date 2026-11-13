@@ -231,9 +231,8 @@ try {
     $state = Load-State
 
     # --- Check 1: Go middleware + library (Koha) reachability (via Go's own /health) ---
-    # /health reports the library app's reachability in "slims_api" (the key is kept for
-    # dashboard compatibility whatever the backend is); "slims_mysql" is the legacy SLiMS
-    # database ("disabled" in Koha mode).
+    # /health reports Koha's reachability in "slims_api" (the key keeps its old name
+    # because the dashboards read it).
     $goBad = $false
     $slimsBad = $false
     $slimsMsg = "Koha/internet tidak bisa dijangkau."
@@ -241,13 +240,9 @@ try {
     try {
         $resp = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 5 -Method Get
         $libraryState = [string]$resp.data.slims_api
-        $legacyState  = [string]$resp.data.slims_mysql
         if ($libraryState -like "unreachable*" -or $libraryState -like "error*") {
             $slimsBad = $true
             $slimsMsg = "Koha/internet tidak bisa dijangkau: $libraryState"
-        } elseif ($legacyState -like "unreachable*") {
-            $slimsBad = $true
-            $slimsMsg = "Database SLiMS tidak bisa dijangkau: $legacyState"
         }
     } catch {
         $goBad = $true

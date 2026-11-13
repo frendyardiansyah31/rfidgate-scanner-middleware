@@ -36,7 +36,7 @@ func (e *SQLiteEnricher) Enrich(log history.HistoryLog) history.HistoryLog {
 	entry, found, _ := e.repo.Lookup(itemCode)
 	if !found {
 		// item_biblio_map has no row yet: fall back to the title that
-		// rfid_item already carries from the SLiMS pull.
+		// rfid_item already carries from the Koha mirror sync.
 		if itemTitle != "" {
 			log.Title = itemTitle
 		} else {

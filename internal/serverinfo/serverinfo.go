@@ -18,7 +18,6 @@ const FileName = "server-info.txt"
 
 type Info struct {
 	Addr    string // bind address as configured, e.g. "127.0.0.1:3000"
-	Backend string // library backend: "slims" or "koha"
 	Config  string // directory holding config.yaml / edge.db
 	LogFile string
 	Running bool
@@ -75,7 +74,7 @@ func (i Info) Text() string {
 	line("Gate API  : POST %s/rfid/check", base)
 	line("Live logs : %s/rfid/logs/stream", base)
 	line("")
-	line("Library   : %s", i.Backend)
+	line("Library   : koha")
 	line("Config    : %s", filepath.Join(i.Config, "config.yaml"))
 	line("Log file  : %s", i.LogFile)
 	if local {

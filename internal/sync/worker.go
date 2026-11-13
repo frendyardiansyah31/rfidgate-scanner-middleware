@@ -10,7 +10,7 @@ import (
 
 type Worker struct {
 	queue   queue.EventQueue
-	syncer  SlimsSync
+	syncer  EventSink
 	offline OfflineStore
 	logger  logger.Logger
 
@@ -19,7 +19,7 @@ type Worker struct {
 
 func NewWorker(
 	eventQueue queue.EventQueue,
-	syncer SlimsSync,
+	syncer EventSink,
 	offline OfflineStore,
 	logger logger.Logger,
 ) *Worker {
@@ -28,7 +28,7 @@ func NewWorker(
 		syncer:  syncer,
 		offline: offline,
 		logger:  logger,
-		sem:     make(chan struct{}, 4), // 🔧 MAX 4 concurrent MySQL sync
+		sem:     make(chan struct{}, 4), // max 4 events handled concurrently
 	}
 }
 
