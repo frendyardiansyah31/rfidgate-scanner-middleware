@@ -1,0 +1,25 @@
+# gate.ini - settings for the gate app's decision logic (GateDecisionClient.cs).
+# Copy this file to "gate.ini" NEXT TO RFD1861Demo.exe. Lines starting with # or ; are comments.
+# Every key is optional; a missing gate.ini means the defaults below, and no Koha fallback.
+#
+# Order for every scan:
+#   1. the local Go middleware               (MiddlewareUrl)
+#   2. Koha directly, ONLY if KohaBaseUrl and KohaApiKey are set, when 1 fails
+#   3. both failed: the gate FAILS OPEN (no alarm) and plays a warning tone; watchdog.ps1 alerts staff
+
+# Where the Go middleware listens (must match server.port in its config.yaml).
+MiddlewareUrl=http://127.0.0.1:3000/rfid/check
+# Give up on the middleware after this long. Localhost normally answers in well under 100 ms.
+MiddlewareTimeoutMs=1000
+
+# Koha RfidGateApi plugin namespace root (no trailing slash needed). Leave empty to disable the fallback.
+# Use a DEDICATED API key for the gate (Koha: plugin configuration page, one key per line) so it can be
+# revoked on its own, and do not share it with the middleware's key.
+#KohaBaseUrl=https://catalogue.uiii.ac.id/api/v1/contrib/rfid_gate
+#KohaApiKey=PASTE-A-GATE-ONLY-KEY
+KohaTimeoutMs=1500
+
+# After a source fails it is skipped for this many seconds, so later scans are not delayed by its timeout.
+# Then it is tried once more. On Windows a refused connection to a closed port takes ~2 s to be reported,
+# so without this every scan during an outage would wait for the full timeout.
+BreakerSeconds=10

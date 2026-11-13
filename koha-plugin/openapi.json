@@ -1,0 +1,320 @@
+{
+    "/rfid/check": {
+        "post": {
+            "x-mojo-to": "Com::Library::RfidGateApi::REST::V1::Gate#check_item",
+            "operationId": "rfidGateCheckItem",
+            "tags": ["gate"],
+            "summary": "Check whether the item matching an RFID tag is currently on loan",
+            "description": "Resolves an RFID tag to a Koha item (via the item_rfid table the ItemRFID plugin owns, falling back to a direct barcode match) and reports BORROWED/NOT_BORROWED/ITEM_NOT_FOUND. Authenticated with a plugin-managed API key sent in the X-API-Key header, not Koha's native REST auth — this route intentionally carries no x-koha-authorization so the gate middleware can call it exactly as it does the SLiMS equivalent. Authorization: Bearer is NOT supported here: Koha's core REST auth layer intercepts any request carrying that header and attempts real OAuth2 validation on it before this route ever sees it, rejecting with Koha's own 401 regardless of the route's own auth requirements. Every call is logged (best-effort) to plugin_rfid_gate_log.",
+            "parameters": [
+                {
+                    "name": "body",
+                    "in": "body",
+                    "required": true,
+                    "description": "RFID tag scanned at the gate",
+                    "schema": {
+                        "type": "object",
+                        "required": ["rfid_tag"],
+                        "properties": {
+                            "rfid_tag": { "type": "string" }
+                        }
+                    }
+                }
+            ],
+            "consumes": ["application/json"],
+            "produces": ["application/json"],
+            "responses": {
+                "200": {
+                    "description": "Item status for the scanned tag",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "status": { "type": "string", "enum": ["BORROWED", "NOT_BORROWED", "ITEM_NOT_FOUND"] },
+                            "rfid_tag": { "type": "string" }
+                        }
+                    }
+                },
+                "400": {
+                    "description": "Invalid request",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "status": { "type": "string" },
+                            "message": { "type": "string" }
+                        }
+                    }
+                },
+                "401": {
+                    "description": "Missing or invalid API key",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "status": { "type": "string" },
+                            "message": { "type": "string" }
+                        }
+                    }
+                },
+                "500": {
+                    "description": "Unexpected error",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "status": { "type": "string" },
+                            "message": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "/rfid/status": {
+        "get": {
+            "x-mojo-to": "Com::Library::RfidGateApi::REST::V1::Gate#rfid_status",
+            "operationId": "rfidGateStatusList",
+            "tags": ["gate"],
+            "summary": "Bulk or delta loan status of every RFID-tagged item",
+            "description": "Feeds the gate middleware's offline mirror. Without `since` it lists every RFID-tagged item; with `since` it lists only items changed since that Koha-local time (items.timestamp or item_rfid.assigned_at). Deleted items/tags are not visible to the delta, so clients must also run a full listing periodically. Keyset pagination on the normalised tag (`after`). `server_time` is Koha's clock read before the query; send it back as the next `since`. Requires the same X-API-Key as POST /rfid/check. Not written to plugin_rfid_gate_log.",
+            "parameters": [
+                { "name": "since", "in": "query", "type": "string", "required": false,
+                  "description": "Koha-local time, YYYY-MM-DD HH:MM:SS. Omit for a full listing." },
+                { "name": "after", "in": "query", "type": "string", "required": false,
+                  "description": "Keyset cursor: the next_after of the previous page. Omit for the first page." },
+                { "name": "limit", "in": "query", "type": "integer", "required": false,
+                  "description": "Records per page, clamped 1 to 5000. Defaults to 2000." }
+            ],
+            "produces": ["application/json"],
+            "responses": {
+                "200": {
+                    "description": "One page of item status",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "server_time": { "type": "string" },
+                            "since": { "type": "string" },
+                            "total_rfid": { "type": "integer" },
+                            "count": { "type": "integer" },
+                            "has_more": { "type": "boolean" },
+                            "next_after": { "type": "string" },
+                            "records": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "rfid_norm": { "type": "string" },
+                                        "item_code": { "type": "string" },
+                                        "status": { "type": "string", "enum": ["BORROWED", "NOT_BORROWED"] }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "400": {
+                    "description": "Invalid request",
+                    "schema": { "type": "object", "properties": { "status": { "type": "string" }, "message": { "type": "string" } } }
+                },
+                "401": {
+                    "description": "Missing or invalid API key",
+                    "schema": { "type": "object", "properties": { "status": { "type": "string" }, "message": { "type": "string" } } }
+                },
+                "500": {
+                    "description": "Unexpected error",
+                    "schema": { "type": "object", "properties": { "status": { "type": "string" }, "message": { "type": "string" } } }
+                }
+            }
+        }
+    },
+    "/rfid/biblio": {
+        "get": {
+            "x-mojo-to": "Com::Library::RfidGateApi::REST::V1::Gate#rfid_biblio",
+            "operationId": "rfidGateBiblioList",
+            "tags": ["gate"],
+            "summary": "Minimal biblio data for RFID-tagged items (title, biblionumber, cover flag)",
+            "description": "Feeds the gate middleware's title/cover cache. Only items that carry an RFID tag and have a barcode are listed. Without `since` it lists all of them; with `since` only those changed since that Koha-local time (items, biblio or cover_images timestamp, or a newly assigned tag). Deleted items are not visible to the delta, so clients must also run a full listing periodically. `has_cover` tells whether a local cover image exists; the cover is fetched by the dashboard from the OPAC (opac-image.pl?biblionumber=). Keyset pagination on the item number (`after`). Requires the same X-API-Key as POST /rfid/check. Not written to plugin_rfid_gate_log.",
+            "parameters": [
+                { "name": "since", "in": "query", "type": "string", "required": false,
+                  "description": "Koha-local time, YYYY-MM-DD HH:MM:SS. Omit for a full listing." },
+                { "name": "after", "in": "query", "type": "string", "required": false,
+                  "description": "Keyset cursor: the next_after of the previous page. Omit for the first page." },
+                { "name": "limit", "in": "query", "type": "integer", "required": false,
+                  "description": "Records per page, clamped 1 to 5000. Defaults to 2000." }
+            ],
+            "produces": ["application/json"],
+            "responses": {
+                "200": {
+                    "description": "One page of biblio data",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "server_time": { "type": "string" },
+                            "since": { "type": "string" },
+                            "total": { "type": "integer" },
+                            "count": { "type": "integer" },
+                            "has_more": { "type": "boolean" },
+                            "next_after": { "type": "string" },
+                            "records": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "item_code": { "type": "string" },
+                                        "biblio_id": { "type": "string" },
+                                        "title": { "type": "string" },
+                                        "has_cover": { "type": "boolean" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "400": {
+                    "description": "Invalid request",
+                    "schema": { "type": "object", "properties": { "status": { "type": "string" }, "message": { "type": "string" } } }
+                },
+                "401": {
+                    "description": "Missing or invalid API key",
+                    "schema": { "type": "object", "properties": { "status": { "type": "string" }, "message": { "type": "string" } } }
+                },
+                "500": {
+                    "description": "Unexpected error",
+                    "schema": { "type": "object", "properties": { "status": { "type": "string" }, "message": { "type": "string" } } }
+                }
+            }
+        }
+    },
+    "/health": {
+        "get": {
+            "x-mojo-to": "Com::Library::RfidGateApi::REST::V1::Gate#health",
+            "operationId": "rfidGateHealth",
+            "tags": ["gate"],
+            "summary": "Reachability probe for the RFID gate middleware",
+            "description": "Public, read-only, side-effect free. Returns 200 if the Koha database is reachable, 503 otherwise. No API key required, matching the SLiMS equivalent.",
+            "produces": ["application/json"],
+            "responses": {
+                "200": {
+                    "description": "Database reachable",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "status": { "type": "string" }
+                        }
+                    }
+                },
+                "503": {
+                    "description": "Database unreachable",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "status": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "/gate/history": {
+        "get": {
+            "x-mojo-to": "Com::Library::RfidGateApi::REST::V1::Gate#get_history",
+            "operationId": "rfidGateHistory",
+            "tags": ["gate"],
+            "summary": "Paginated gate scan history",
+            "description": "Returns paginated records from plugin_rfid_gate_log, joined to items/biblio for the title. Requires the same X-API-Key header as POST /rfid/check (SLiMS's equivalent endpoint has no auth at all, but this one is key-gated here by request).",
+            "parameters": [
+                {
+                    "name": "itemCode",
+                    "in": "query",
+                    "type": "string",
+                    "required": false,
+                    "description": "Filter by item barcode or RFID label (SN prefix stripped on both sides before comparing)"
+                },
+                {
+                    "name": "title",
+                    "in": "query",
+                    "type": "string",
+                    "required": false,
+                    "description": "Filter by title. Multiple words are ANDed, each matched with LIKE."
+                },
+                {
+                    "name": "status",
+                    "in": "query",
+                    "type": "integer",
+                    "required": false,
+                    "description": "0 = Permitted, 1 = Not Permitted. Omit to return all statuses."
+                },
+                {
+                    "name": "startDate",
+                    "in": "query",
+                    "type": "string",
+                    "format": "date",
+                    "required": false,
+                    "description": "Start of date range (inclusive), format YYYY-MM-DD. Defaults to 2000-01-01 if omitted or invalid."
+                },
+                {
+                    "name": "untilDate",
+                    "in": "query",
+                    "type": "string",
+                    "format": "date",
+                    "required": false,
+                    "description": "End of date range (inclusive), format YYYY-MM-DD. Defaults to today if omitted or invalid."
+                },
+                {
+                    "name": "page",
+                    "in": "query",
+                    "type": "integer",
+                    "required": false,
+                    "description": "Page number (1-based). Defaults to 1."
+                },
+                {
+                    "name": "limit",
+                    "in": "query",
+                    "type": "integer",
+                    "required": false,
+                    "description": "Records per page, clamped between 1 and 200. Defaults to 20."
+                }
+            ],
+            "produces": ["application/json"],
+            "responses": {
+                "200": {
+                    "description": "Gate history retrieved",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "error": { "type": "boolean" },
+                            "message": { "type": "string" },
+                            "data": {
+                                "type": "object",
+                                "properties": {
+                                    "total": { "type": "integer" },
+                                    "page": { "type": "integer" },
+                                    "limit": { "type": "integer" },
+                                    "total_pages": { "type": "integer" },
+                                    "records": { "type": "array", "items": { "type": "object" } }
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {
+                    "description": "Missing or invalid API key",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "error": { "type": "boolean" },
+                            "message": { "type": "string" }
+                        }
+                    }
+                },
+                "500": {
+                    "description": "Unexpected error",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "error": { "type": "boolean" },
+                            "message": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

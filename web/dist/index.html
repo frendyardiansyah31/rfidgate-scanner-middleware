@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RFID Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen antialiased flex flex-col">
+
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <div class="flex items-center gap-3">
+          <span class="w-10 h-10 rounded-lg bg-blue-700 text-white flex items-center justify-center shadow-sm shrink-0" data-icon="shield-check" data-icon-class="w-6 h-6"></span>
+          <div>
+            <span class="font-bold text-slate-900 text-lg leading-tight block">RFID Gate Dashboard</span>
+            <nav aria-label="Breadcrumb">
+              <ol class="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                <li>Circulation &amp; Security</li>
+                <li aria-hidden="true" class="text-slate-400">/</li>
+                <li aria-current="page" class="text-blue-700 font-semibold">Gate Logs</li>
+              </ol>
+            </nav>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <div class="hidden md:flex items-center gap-2" id="status-pills"></div>
+          <button type="button" id="refresh-btn" aria-label="Refresh gate detection activity"
+            class="inline-flex items-center gap-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-base px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-600 transition">
+            <span id="refresh-icon" data-icon="refresh" data-icon-class="w-5 h-5"></span>
+            <span>Refresh Activity</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div id="offline-banner" hidden
+      class="flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm font-medium">
+      <span data-icon="wifi-off" data-icon-class="w-4 h-4 shrink-0"></span>
+      <span>Offline mode — showing last saved data. Connection to the RFID service is interrupted.</span>
+    </div>
+
+    <section aria-labelledby="metrics-title">
+      <h2 class="sr-only" id="metrics-title">Operational Summary Metrics</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" id="metrics"></div>
+    </section>
+
+    <div id="content">
+      <!-- error state or table; rendered by view.js -->
+      <section class="bg-white p-5 rounded-lg border border-slate-200 shadow-sm mb-6" id="filters">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+          <div class="md:col-span-5">
+            <label class="block text-sm font-bold text-slate-900 mb-1" for="search-input">Search Item or Tag</label>
+            <div class="relative">
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" data-icon="search" data-icon-class="h-5 w-5"></span>
+              <input id="search-input" type="search" autocomplete="off"
+                placeholder="Search by Item Code, RFID EPC, or Book Title..."
+                class="w-full pl-10 pr-4 py-2.5 text-base rounded-md border border-slate-300 shadow-sm focus:border-blue-600 focus:ring-blue-600 text-slate-900 font-medium placeholder-slate-400 focus:outline-none" />
+            </div>
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-sm font-bold text-slate-900 mb-1" for="status-filter">Access Status</label>
+            <select id="status-filter"
+              class="w-full py-2.5 text-base rounded-md border border-slate-300 shadow-sm focus:border-blue-600 focus:ring-blue-600 text-slate-900 font-medium focus:outline-none">
+              <option value="">All Status (All Events)</option>
+              <option value="Permitted">Permitted (Authorized)</option>
+              <option value="Not Permitted">Not Permitted (Alarms)</option>
+            </select>
+          </div>
+          <div class="md:col-span-3">
+            <label class="block text-sm font-bold text-slate-900 mb-1" for="date-filter">Filter by Date</label>
+            <input id="date-filter" type="date"
+              class="w-full py-2.5 text-base rounded-md border border-slate-300 bg-slate-50 shadow-sm text-slate-900 font-medium focus:border-blue-600 focus:ring-blue-600 focus:outline-none" />
+          </div>
+          <div class="md:col-span-1">
+            <button type="button" id="reset-btn"
+              class="w-full py-2.5 text-base font-semibold text-slate-700 hover:text-blue-700 bg-slate-100 hover:bg-slate-200 rounded-md border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600 transition text-center">
+              Reset
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div id="error-state" hidden></div>
+
+      <section class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden" id="table-section">
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-left">
+            <thead class="bg-slate-100 text-slate-800 text-base font-bold">
+              <tr id="table-head"></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 bg-white text-base" id="table-body"></tbody>
+          </table>
+        </div>
+
+        <div class="bg-slate-50 border-t border-slate-200 px-4 py-3 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div class="flex items-center gap-4 text-base text-slate-700">
+            <div class="flex items-center gap-2">
+              <label class="font-medium text-slate-700" for="rows-per-page">Rows shown:</label>
+              <select id="rows-per-page"
+                class="rounded border border-slate-300 py-1 pl-2 pr-7 text-sm font-semibold focus:border-blue-600 focus:ring-blue-600 focus:outline-none">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+            <span aria-hidden="true" class="text-slate-400">|</span>
+            <p class="font-medium" id="range-label"></p>
+          </div>
+          <!-- Pagination disabled: the table shows the first N rows ("Rows shown").
+          <nav aria-label="Pagination Navigation" class="inline-flex items-center -space-x-px rounded-md shadow-xs" id="pager"></nav>
+          -->
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="bg-white border-t border-slate-200 mt-auto py-6">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm font-medium text-slate-600">
+      <p>&copy; <span id="year"></span> University Library Security &amp; Circulation Services. Connected to SLiMS ILS Core.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

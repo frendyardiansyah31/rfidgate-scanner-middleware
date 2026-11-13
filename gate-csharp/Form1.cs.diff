@@ -1,0 +1,158 @@
+--- a/RFD1861Demo/Form1.cs	2026-11-11 23:49:03.570653900 +0700
++++ b/RFD1861Demo/Form1.cs	2026-11-12 09:14:54.100630700 +0700
+@@ -1380,6 +1380,22 @@
+     //    conn.Close();
+     //}
+ 
++    // Edited by Frendy start
++    // Gate decision: the local Go middleware first, Koha directly as a backup (only if configured in
++    // gate.ini), and FAIL OPEN with a warning tone when neither answers. Rules and timeouts are in
++    // GateDecisionClient.cs. Settings come from gate.ini next to the exe (see gate.ini.example).
++    private readonly GateDecisionClient _gateClient = CreateGateClient();
++    private readonly GateStatusFile _gateStatus = new GateStatusFile(GateStatusFile.DefaultPath());
++    private DateTime _lastDegradedTone = DateTime.MinValue;
++
++    private static GateDecisionClient CreateGateClient()
++    {
++        string ini = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gate.ini");
++        GateDecisionClient client = new GateDecisionClient(GateSettings.Load(ini));
++        client.Logger = delegate (string message) { Log.WriteLog("[gate] " + message); };
++        return client;
++    }
++
+     public void checklabel(string slabel, int isTest)
+     {
+         if (string.IsNullOrEmpty(slabel)) return;
+@@ -1387,113 +1403,39 @@
+         // Trim & normalisasi
+         string rfid = slabel.Trim();
+ 
+-        // Step 1: Call Go middleware
+-        string jsonResp = CallGoMiddleware(rfid);
+-
+-        // Step 2: Parse decision dari JSON
+-        int decision = ParseDecisionFromJson(jsonResp);
+-
+-        // Step 3: Tentukan alarm / aksi
++        GateResult result = _gateClient.Check(rfid);
++        int decision = result.Decision;
+         bool alarm = decision == 1;
++        _gateStatus.Report(result.Source); // lets watchdog.ps1 see when scans pass unchecked
+ 
+         if (alarm)
+         {
+-            playaudio(); // bunyikan alarm
+-            // MessageBox.Show(
+-            //     "ALARM! RFID: " + rfid + "\nDecision: " + decision,
+-            //     "RFID ALERT",
+-            //     MessageBoxButtons.OK,
+-            //     MessageBoxIcon.Warning
+-            // );
++            playaudio(); // book is not on loan: alarm
+         }
+-
+-        // Step 4: Log decision
+-        LogDecision(rfid, decision, alarm, isTest);
+-    }
+-
+-    // ===============================
+-    // Memanggil Go middleware API
+-    // ===============================
+-    private string CallGoMiddleware(string rfid)
+-    {
+-        string url = "http://127.0.0.1:3000/rfid/check";
+-        string responseText = "";
+-
+-        try
++        else if (result.FailOpen)
+         {
+-            string jsonRequest = "{ \"rfid\": \"" + rfid + "\" }";
+-
+-            WebRequest req = WebRequest.Create(url);
+-            req.Method = "POST";
+-            req.ContentType = "application/json";
+-
+-            // Tulis request body
+-            using (Stream reqStream = req.GetRequestStream())
+-            {
+-                byte[] data = Encoding.UTF8.GetBytes(jsonRequest);
+-                reqStream.Write(data, 0, data.Length);
+-            }
+-
+-            // Baca response
+-            using (WebResponse resp = req.GetResponse())
+-            using (Stream respStream = resp.GetResponseStream())
+-            using (StreamReader reader = new StreamReader(respStream))
+-            {
+-                responseText = reader.ReadToEnd();
+-            }
++            PlayDegradedTone(); // middleware AND Koha unreachable: allowed through, but warn staff
+         }
+-        catch (Exception ex)
++
++        LogDecision(rfid, decision, alarm, isTest);
++        if (result.Source != GateSource.Middleware && isTest != 1)
+         {
+-            Console.WriteLine("Go API call failed: " + ex.Message);
+-            // MessageBox.Show("Go API call failed: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
++            Log.WriteLog("[gate] rfid=" + rfid + " decision=" + decision + " source=" + result.Source + " (" + result.Detail + ")");
+         }
+-
+-        return responseText;
+     }
+ 
+-    // ===============================
+-    // Parsing JSON sederhana untuk .NET 2.0
+-    // ===============================
+-    private int ParseDecisionFromJson(string json)
++    // A tone that is clearly NOT the alarm (the alarm means "stop, book not on loan"). Rate limited so a
++    // busy gate does not beep for every person while the systems are down.
++    private void PlayDegradedTone()
+     {
+-        // JSON contoh terbaru:
+-        // {
+-        //   "success": true,
+-        //   "code": "OK",
+-        //   "message": "RFID checked",
+-        //   "data": { "decision": 0, "reason": "UNKNOWN_RFID", "rfid": "...", "signal": false },
+-        //   "meta": { "timestamp": "..." }
+-        // }
+-
+-        if (string.IsNullOrEmpty(json)) return 0;
+-
+-        int decision = 0;
+-
+-        try
+-        {
+-            // Cari "decision": di string JSON dan ambil angkanya
+-            string marker = "\"decision\":";
+-            int idx = json.IndexOf(marker);
+-            if (idx >= 0)
+-            {
+-                idx += marker.Length;
+-                // Ambil karakter setelah ":"
+-                int endIdx = json.IndexOfAny(new char[] { ',', '}' }, idx);
+-                if (endIdx > idx)
+-                {
+-                    string numStr = json.Substring(idx, endIdx - idx).Trim();
+-                    decision = int.Parse(numStr);
+-                }
+-            }
+-        }
+-        catch
+-        {
+-            decision = 0;
+-        }
+-
+-        return decision;
++        DateTime now = DateTime.Now;
++        if ((now - _lastDegradedTone).TotalSeconds < 10) return;
++        _lastDegradedTone = now;
++        try { SystemSounds.Exclamation.Play(); } catch (Exception) { }
+     }
+ 
++    // Edited by Frendy end
++
+     // ===============================
+     // Log decision
+     // ===============================

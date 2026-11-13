@@ -1,0 +1,216 @@
+openapi: 3.0.3
+info:
+  title: RFID Edge Service API
+  description: >
+    Local Middleware API used by RFID Gate (C#) and Frontend Dashboard.
+    Manages RFID validation, offline sync, and monitoring logs.
+  version: 1.1.0
+
+servers:
+  - url: http://localhost:3000
+    description: Local edge service
+
+paths:
+  # ----------------------------------------------------------------
+  # CORE RFID ENDPOINT (Used by Gate Hardware)
+  # ----------------------------------------------------------------
+  /rfid/check:
+    post:
+      summary: Validate RFID Tag
+      description: >
+        Validates RFID tag against local cache/SQLite and determines
+        whether the alarm should be triggered.
+      operationId: checkRFID
+      tags:
+        - Hardware Gate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RFIDCheckRequest"
+      responses:
+        "200":
+          description: Validation successful (Check 'signal' field for alarm)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeRFIDResponse"
+        "400":
+          description: Invalid Input (Empty RFID or Malformed JSON)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeError"
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeError"
+
+  # ----------------------------------------------------------------
+  # FRONTEND DASHBOARD ENDPOINTS (Used by Svelte/Web UI)
+  # ----------------------------------------------------------------
+  /api/logs:
+    get:
+      summary: Get Recent Scan History
+      description: Retrieve the last 50 scan events from local SQLite history.
+      operationId: getLogs
+      tags:
+        - Dashboard UI
+      responses:
+        "200":
+          description: List of recent logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeHistoryLog"
+        "500":
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeError"
+
+  /api/status:
+    get:
+      summary: Get System Connectivity Status
+      description: Check connection status to Local DB and Remote SLiMS Servers.
+      operationId: getStatus
+      tags:
+        - Dashboard UI
+      responses:
+        "200":
+          description: System status details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeSystemStatus"
+
+components:
+  schemas:
+    # --------------------------------------
+    # REQUEST SCHEMAS
+    # --------------------------------------
+    RFIDCheckRequest:
+      type: object
+      required:
+        - rfid
+      properties:
+        rfid:
+          type: string
+          description: RFID tag UID read by the hardware reader
+          example: "E20034120123456789012345"
+
+    # --------------------------------------
+    # DATA MODELS
+    # --------------------------------------
+    RFIDData:
+      type: object
+      properties:
+        rfid:
+          type: string
+          example: "E20034120123456789012345"
+        decision:
+          type: integer
+          description: "0 = Allow, 1 = Alarm"
+          enum: [0, 1]
+          example: 1
+        reason:
+          type: string
+          description: "Technical reason for decision"
+          enum: ["LOAN_VALID", "NOT_LOAN", "UNKNOWN_RFID", "TIMEOUT"]
+          example: "NOT_LOAN"
+        signal:
+          type: boolean
+          description: "True means trigger the physical alarm/light"
+          example: true
+
+    HistoryLog:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 105
+        rfid:
+          type: string
+          example: "E20034120123456789012345"
+        status:
+          type: integer
+          description: "Raw integer status from DB"
+          example: 2
+        status_str:
+          type: string
+          description: "Human readable status for UI"
+          enum: ["ALLOWED", "ALARM", "UNKNOWN"]
+          example: "ALARM"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-01-21T10:55:56Z"
+
+    SystemStatus:
+      type: object
+      properties:
+        slims_server:
+          type: string
+          enum: ["ONLINE", "OFFLINE"]
+          example: "ONLINE"
+        local_server:
+          type: string
+          enum: ["ONLINE", "OFFLINE"]
+          example: "ONLINE"
+        mode:
+          type: string
+          example: "HYBRID"
+
+    # --------------------------------------
+    # RESPONSE ENVELOPES (Standardized)
+    # --------------------------------------
+    
+    # Generic Error Envelope
+    EnvelopeError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        code:
+          type: string
+          example: "INVALID_PAYLOAD"
+        message:
+          type: string
+          example: "Gagal membaca data JSON"
+
+    # Success Envelope for RFID Check
+    EnvelopeRFIDResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: "#/components/schemas/RFIDData"
+
+    # Success Envelope for History Logs
+    EnvelopeHistoryLog:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryLog"
+
+    # Success Envelope for Status
+    EnvelopeSystemStatus:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: "#/components/schemas/SystemStatus"

@@ -1,0 +1,53 @@
+nssm64/
+nssm64.exe
+rfid-middleware.exe
+rfid-middleware
+edge1.db
+cmd/
+logs/
+internal/sync/test_pull.sqlite
+CLAUDE.md
+watchdog/state.json
+watchdog/watchdog.log
+watchdog/heal-state.json
+watchdog/heal.log
+# holds the Telegram bot token
+watchdog/telegram.json
+# holds API credentials
+kohakeydev.txt
+rfid-middleware.startup*.log
+
+# caveman-init generated (per-IDE agent rule drops)
+.clinerules/
+.cursor/
+.windsurf/
+.opencode/
+.github/
+AGENTS.md
+
+# scratch audit docs, not meant for repo
+LIBRARY_BACKEND_ABSTRACTION_AUDIT.md
+REMOTE_FIRST_LOOKUP_REPORT.md
+AUDIT_LOOKUP_FLOW.md
+
+# dashboard: Tailwind CLI is downloaded by web/build-css.ps1
+web/tools/
+
+# generated at startup
+server-info.txt
+
+# build-deploy.ps1 output
+deploy/
+
+config.yaml
+edge.db
+# secrets and local state: never commit (use config.koha.example.yaml as the template)
+/config.yaml
+/internal/config/config.yaml
+edge.db
+edge.db-shm
+edge.db-wal
+*.sqlite
+
+# local agent notes
+.claude/

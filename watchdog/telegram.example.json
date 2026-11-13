@@ -1,0 +1,6 @@
+{
+  "bot_token": "123456789:PASTE-THE-TOKEN-FROM-BOTFATHER",
+  "chat_id": "-1001234567890",
+  "machine_name": "GATE-PC-1",
+  "api_base": "https://api.telegram.org"
+}

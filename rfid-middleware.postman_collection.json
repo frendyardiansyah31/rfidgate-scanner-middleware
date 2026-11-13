@@ -1,0 +1,397 @@
+{
+  "info": {
+    "name": "RFID Middleware",
+    "description": "Test collection untuk RFID Edge Service Middleware\nBase URL: http://127.0.0.1:3000\n\nGanti nilai variable:\n- rfid_loaned    : RFID tag buku yang sedang dipinjam (ada di rfid_status, status=loaned)\n- rfid_available : RFID tag buku yang tidak dipinjam (ada di rfid_status, status=not loaned)\n- rfid_unknown   : RFID yang tidak ada di sistem sama sekali",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url",       "value": "http://127.0.0.1:3000" },
+    { "key": "rfid_loaned",    "value": "GANTI_DENGAN_RFID_DIPINJAM" },
+    { "key": "rfid_available", "value": "GANTI_DENGAN_RFID_TIDAK_DIPINJAM" },
+    { "key": "rfid_unknown",   "value": "RFID_TIDAK_ADA_DI_SISTEM_00000" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "[+] Health check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('response time < 500ms', () => pm.expect(pm.response.responseTime).to.be.below(500));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "RFID Check",
+      "item": [
+        {
+          "name": "[+] Buku dipinjam → Allow (decision=0)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Arrange",
+                  "// Pastikan variable rfid_loaned sudah diisi dengan RFID yang statusnya loaned di SLiMS"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope success', () => pm.expect(body.success).to.be.true);",
+                  "",
+                  "const data = body.data;",
+                  "pm.test('decision = 0 (Allow)', () => pm.expect(data.decision).to.eql(0));",
+                  "pm.test('reason = LOAN_VALID',  () => pm.expect(data.reason).to.eql('LOAN_VALID'));",
+                  "pm.test('signal = false',        () => pm.expect(data.signal).to.be.false);",
+                  "pm.test('rfid echo benar',       () => pm.expect(data.rfid).to.eql(pm.collectionVariables.get('rfid_loaned')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"rfid\": \"{{rfid_loaned}}\"}"
+            },
+            "url": "{{base_url}}/rfid/check"
+          }
+        },
+        {
+          "name": "[+] Buku tidak dipinjam → Alarm (decision=1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const data = pm.response.json().data;",
+                  "pm.test('decision = 1 (Alarm)', () => pm.expect(data.decision).to.eql(1));",
+                  "pm.test('reason = NOT_LOAN',    () => pm.expect(data.reason).to.eql('NOT_LOAN'));",
+                  "pm.test('signal = true',         () => pm.expect(data.signal).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"rfid\": \"{{rfid_available}}\"}"
+            },
+            "url": "{{base_url}}/rfid/check"
+          }
+        },
+        {
+          "name": "[+] RFID tidak dikenal → Allow (pengunjung/bukan buku)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert — RFID tidak dikenal dianggap bukan buku, boleh lewat",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const data = pm.response.json().data;",
+                  "pm.test('decision = 0 (Allow)',    () => pm.expect(data.decision).to.eql(0));",
+                  "pm.test('reason = UNKNOWN_RFID',   () => pm.expect(data.reason).to.eql('UNKNOWN_RFID'));",
+                  "pm.test('signal = false',           () => pm.expect(data.signal).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"rfid\": \"{{rfid_unknown}}\"}"
+            },
+            "url": "{{base_url}}/rfid/check"
+          }
+        },
+        {
+          "name": "[-] RFID kosong → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert",
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('success = false',          () => pm.expect(body.success).to.be.false);",
+                  "pm.test('error code INVALID_RFID',  () => pm.expect(body.error_code).to.eql('INVALID_RFID'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"rfid\": \"\"}"
+            },
+            "url": "{{base_url}}/rfid/check"
+          }
+        },
+        {
+          "name": "[-] RFID field tidak ada → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert — field rfid tidak dikirim sama sekali",
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('success = false', () => pm.expect(pm.response.json().success).to.be.false);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": "{{base_url}}/rfid/check"
+          }
+        },
+        {
+          "name": "[-] Body bukan JSON → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert",
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('error code INVALID_JSON', () => pm.expect(body.error_code).to.eql('INVALID_JSON'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "ini bukan json"
+            },
+            "url": "{{base_url}}/rfid/check"
+          }
+        },
+        {
+          "name": "[-] Method GET → 405",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert — endpoint hanya menerima POST",
+                  "pm.test('status 405', () => pm.response.to.have.status(405));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('error code METHOD_NOT_ALLOWED', () => pm.expect(body.error_code).to.eql('METHOD_NOT_ALLOWED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/rfid/check"
+          }
+        },
+        {
+          "name": "[-] RFID hanya whitespace → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert — whitespace di-trim, jadi dianggap kosong",
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('error code INVALID_RFID', () => pm.expect(pm.response.json().error_code).to.eql('INVALID_RFID'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"rfid\": \"   \"}"
+            },
+            "url": "{{base_url}}/rfid/check"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Logs",
+      "item": [
+        {
+          "name": "[+] Get 50 log terakhir",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('success = true',   () => pm.expect(body.success).to.be.true);",
+                  "pm.test('data adalah array', () => pm.expect(body.data).to.be.an('array'));",
+                  "pm.test('max 50 item',       () => pm.expect(body.data.length).to.be.at.most(50));",
+                  "",
+                  "if (body.data.length > 0) {",
+                  "  const log = body.data[0];",
+                  "  pm.test('ada field id',             () => pm.expect(log).to.have.property('id'));",
+                  "  pm.test('ada field rfid',           () => pm.expect(log).to.have.property('rfid'));",
+                  "  pm.test('ada field status',         () => pm.expect(log).to.have.property('status'));",
+                  "  pm.test('ada field created_at',     () => pm.expect(log).to.have.property('created_at'));",
+                  "  pm.test('ada field item_code',      () => pm.expect(log).to.have.property('item_code'));",
+                  "  pm.test('ada field title',          () => pm.expect(log).to.have.property('title'));",
+                  "  pm.test('status 0 atau 1',          () => pm.expect([0,1]).to.include(log.status));",
+                  "  pm.test('id > 0',                   () => pm.expect(log.id).to.be.above(0));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/rfid/logs"
+          }
+        },
+        {
+          "name": "[+] SSE stream tersambung",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert — SSE connection harus dapat header yang benar",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('content-type text/event-stream', () => {",
+                  "  pm.expect(pm.response.headers.get('Content-Type')).to.include('text/event-stream');",
+                  "});",
+                  "pm.test('cache-control no-cache', () => {",
+                  "  pm.expect(pm.response.headers.get('Cache-Control')).to.eql('no-cache');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/rfid/logs/stream"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "[+] Get sync status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const data = pm.response.json().data;",
+                  "pm.test('ada field is_syncing',      () => pm.expect(data).to.have.property('is_syncing'));",
+                  "pm.test('ada field total_records',   () => pm.expect(data).to.have.property('total_records'));",
+                  "pm.test('ada field last_sync_at',    () => pm.expect(data).to.have.property('last_sync_at'));",
+                  "pm.test('is_syncing boolean',        () => pm.expect(data.is_syncing).to.be.a('boolean'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/admin/sync/status"
+          }
+        },
+        {
+          "name": "[+] Trigger manual biblio sync",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert",
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const data = pm.response.json().data;",
+                  "pm.test('status started atau already_running', () => {",
+                  "  pm.expect(['started', 'already_running']).to.include(data.status);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/admin/sync"
+          }
+        },
+        {
+          "name": "[-] Trigger sync dengan GET → 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Assert — admin/sync hanya menerima POST",
+                  "pm.test('status 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/admin/sync"
+          }
+        }
+      ]
+    }
+  ]
+}

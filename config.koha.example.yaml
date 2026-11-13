@@ -1,0 +1,41 @@
+# config.yaml untuk deploy dengan backend Koha (template, tanpa rahasia).
+# Isi koha_api.base_url dan koha_api.api_key sebelum install.bat dijalankan.
+# File ini menjadi config.yaml di folder deploy; JANGAN menaruh kredensial di repo.
+
+server:
+  address: "127.0.0.1"
+  port: 3000          # harus sama dengan URL di gate (gate.ini MiddlewareUrl)
+
+cache:
+  memory_max_items: 100000
+  memory_ttl_hours: 24
+
+sqlite:
+  path: "edge.db"     # dibuat otomatis di folder exe saat pertama jalan
+
+queue:
+  size: 1000
+
+library:
+  backend: "koha"
+
+koha_api:
+  # Akar namespace plugin RFID Gate API di Koha (tanpa slash di akhir), contoh:
+  #   https://<host-koha>/api/v1/contrib/rfid_gate
+  base_url: ""
+  # X-API-Key milik middleware (dibuat di halaman konfigurasi plugin Koha). Gate memakai key SENDIRI di gate.ini.
+  api_key: ""
+  sync_interval_seconds: 60          # mirror status pinjam (delta)
+  full_sync_hours: 6                 # sync penuh yang juga memangkas data yang sudah dihapus di Koha
+  overlap_minutes: 15
+  biblio_sync_interval_minutes: 10   # judul dan cover
+  biblio_full_sync_hours: 24
+
+slims:
+  enabled: false      # SLiMS deprecated
+
+log:
+  level: "info"
+
+web:
+  dir: ""             # kosong = dashboard tertanam di exe
