@@ -31,11 +31,6 @@ export async function fetchLogs() {
   return rows.map(mapRecord);
 }
 
-export async function fetchHealth() {
-  const json = await getJSON('/health');
-  return { slimsOnline: json.data?.slims_api === 'ok' };
-}
-
 // Live scan stream. EventSource retries on its own after a drop; we only step in
 // when the browser gave up (readyState CLOSED, e.g. server returned an error).
 export function openStream({ onOpen, onEntry, onError }) {

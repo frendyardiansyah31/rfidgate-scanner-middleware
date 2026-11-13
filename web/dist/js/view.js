@@ -1,6 +1,6 @@
 // DOM rendering. Receives plain data, returns nothing; all strings are escaped.
 import { icon } from './icons.js';
-import { esc, formatDate, relativeTime, thumbSrc, largeSrc } from './format.js';
+import { esc, formatDate, thumbSrc, largeSrc } from './format.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -16,65 +16,15 @@ const COLUMNS = [
 ];
 const SKELETON_WIDTHS = [30, 90, 80, 70, 44, 160, 90, 40];
 
-// ─── Status pills + metrics ──────────────────────────────────────────────────
-
-function pill(ok, text, pulse = false) {
-  const tone = ok ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-rose-50 text-rose-900 border-rose-300';
-  const dot = ok ? `bg-emerald-600${pulse ? ' animate-pulse' : ''}` : 'bg-rose-600';
-  return `<span class="inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-1 rounded-full border ${tone}">
-    <span class="w-2 h-2 rounded-full ${dot}"></span>${text}</span>`;
-}
+// ─── Status (offline banner + refresh button) ──────────────────────────────
 
 export function renderStatus(s) {
   const middleware = s.restOk || s.streamLive;
-  $('status-pills').innerHTML =
-    pill(middleware, `Middleware ${middleware ? 'Connected' : 'Not Connected'}`, middleware)
-    + pill(s.slimsOnline, `SLiMS ILS ${s.slimsOnline ? 'Online' : 'Offline'}`)
-    + pill(s.streamLive, s.streamLive ? 'Live' : 'Reconnecting…', s.streamLive)
-    + (s.lastUpdatedAt
-      ? `<span class="text-sm font-medium text-slate-600 pl-1">Last update: <span class="font-semibold text-slate-800">${relativeTime(s.lastUpdatedAt)}</span></span>`
-      : '');
-
   $('offline-banner').hidden = s.browserOnline && middleware;
 
   const btn = $('refresh-btn');
   btn.disabled = s.loading;
   $('refresh-icon').firstElementChild?.classList.toggle('animate-spin', s.loading);
-}
-
-function metricCard({ label, labelClass = 'text-slate-600', value, valueClass = 'text-slate-900', unit, unitClass = 'text-slate-600', cardClass = 'border-slate-200', dot = '' }) {
-  return `<div class="bg-white p-3 border ${cardClass} shadow-sm flex flex-col justify-between"><div>
-    <div class="flex items-center justify-between">
-      <span class="text-xs font-semibold uppercase tracking-wider ${labelClass}">${label}</span>${dot}
-    </div>
-    <div class="mt-1 flex items-baseline gap-1.5">
-      <span class="text-xl font-extrabold ${valueClass} tabular-nums">${value}</span>
-      <span class="text-xs font-medium ${unitClass}">${unit}</span>
-    </div></div></div>`;
-}
-
-export function renderMetrics(s, items) {
-  const permitted = items.filter((i) => i.status === 'Permitted').length;
-  const alarms = items.length - permitted;
-  const v = (n) => (s.loading && items.length === 0 ? '—' : n);
-  const dot = (ok) => `<span class="w-2 h-2 rounded-full ${ok ? 'bg-emerald-500' : 'bg-rose-500'}"></span>`;
-
-  $('metrics').innerHTML =
-    metricCard({ label: 'Total Gate Detections', value: v(items.length), unit: 'items logged' })
-    + metricCard({
-      label: 'Permitted Exits', labelClass: 'text-emerald-800', value: v(permitted), valueClass: 'text-emerald-700',
-      unit: 'authorized loans', dot: '<span aria-hidden="true" class="w-2 h-2 rounded-full bg-emerald-500"></span>',
-    })
-    + metricCard({
-      label: 'Security Triggers', labelClass: 'text-rose-800', value: v(alarms), valueClass: 'text-rose-700',
-      unit: 'alarms raised', unitClass: 'text-rose-900 font-semibold', cardClass: 'border-rose-200 bg-rose-50/20',
-      dot: '<span aria-hidden="true" class="w-2 h-2 rounded-full bg-rose-600 animate-ping"></span>',
-    })
-    + `<div class="bg-white p-3 border border-slate-200 shadow-sm flex flex-col justify-between"><div>
-        <span class="text-xs font-semibold uppercase tracking-wider text-slate-600">System Status</span>
-        <div class="mt-1 flex items-center gap-1.5">${dot(s.restOk || s.streamLive)}<span class="text-sm font-bold text-slate-900">Middleware</span></div>
-        <div class="mt-1 flex items-center gap-1.5">${dot(s.slimsOnline)}<span class="text-sm font-bold text-slate-900">SLiMS ILS</span></div>
-      </div></div>`;
 }
 
 // ─── Table ───────────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RFID Dashboard</title>
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen antialiased flex flex-col">
@@ -13,7 +13,7 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-16">
         <div class="flex items-center gap-3">
-          <span class="w-10 h-10 rounded-lg bg-blue-700 text-white flex items-center justify-center shadow-sm shrink-0" data-icon="shield-check" data-icon-class="w-6 h-6"></span>
+          <img src="/assets/logo-uiii-only.svg" alt="UIII" class="w-10 h-10 shrink-0 object-contain" />
           <div>
             <span class="font-bold text-slate-900 text-lg leading-tight block">RFID Gate Dashboard</span>
             <nav aria-label="Breadcrumb">
@@ -27,7 +27,6 @@
         </div>
 
         <div class="flex items-center gap-3">
-          <div class="hidden md:flex items-center gap-2" id="status-pills"></div>
           <button type="button" id="refresh-btn" aria-label="Refresh gate detection activity"
             class="inline-flex items-center gap-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-base px-4 py-2 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-600 transition">
             <span id="refresh-icon" data-icon="refresh" data-icon-class="w-5 h-5"></span>
@@ -44,11 +43,6 @@
       <span data-icon="wifi-off" data-icon-class="w-4 h-4 shrink-0"></span>
       <span>Offline mode — showing last saved data. Connection to the RFID service is interrupted.</span>
     </div>
-
-    <section aria-labelledby="metrics-title">
-      <h2 class="sr-only" id="metrics-title">Operational Summary Metrics</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" id="metrics"></div>
-    </section>
 
     <div id="content">
       <!-- error state or table; rendered by view.js -->
@@ -106,7 +100,7 @@
                 class="rounded border border-slate-300 py-1 pl-2 pr-7 text-sm font-semibold focus:border-blue-600 focus:ring-blue-600 focus:outline-none">
                 <option value="10">10</option>
                 <option value="25">25</option>
-                <option value="50">50</option>
+                <option value="50" selected>50</option>
                 <option value="100">100</option>
               </select>
             </div>

@@ -1,17 +1,16 @@
-import { fetchLogs, fetchHealth, openStream } from './api.js';
+import { fetchLogs, openStream } from './api.js';
 // Pagination disabled: paginate / pageButtons / renderPager are no longer used.
 import { applyFilters, groupItems, sortItems } from './table.js';
 // import { applyFilters, groupItems, sortItems, paginate, pageButtons } from './table.js';
 import { hydrateIcons } from './icons.js';
 import { PLACEHOLDER } from './format.js';
 import {
-  renderStatus, renderMetrics, renderHead, renderTable, renderError, // renderPager (pagination disabled)
+  renderStatus, renderHead, renderTable, renderError, // renderPager (pagination disabled)
   showCoverPreview, hideCoverPreview,
 } from './view.js';
 
 const MAX_ITEMS = 1000;       // cap memory; the DB keeps everything
 const RESYNC_MS = 60_000;     // safety net in case an SSE event was missed
-const HEALTH_MS = 30_000;
 const FRESH_MS = 2_500;       // how long a live row stays highlighted
 
 const byKey = new Map();
@@ -21,15 +20,13 @@ const state = {
   error: null,
   restOk: true,
   streamLive: false,
-  slimsOnline: true,
   browserOnline: navigator.onLine,
-  lastUpdatedAt: null,
   search: '',
   status: '',
   date: '',
   sort: { key: 'date', dir: 'desc' },
   // page: 0, // pagination disabled
-  pageSize: 10, // "Rows shown"
+  pageSize: 50, // "Rows shown" (default; keep in sync with the selected <option> in index.html)
   fresh: new Set(),
 };
 
@@ -49,10 +46,9 @@ function render() {
 
 function draw() {
   renderStatus(state);
-  renderMetrics(state, state.items);
   renderError(state.error && state.items.length === 0 ? state.error : null);
 
-  // Metrics above use the raw events; only the table shows grouped passes.
+  // The table shows grouped passes (one row per tag per pass).
   const filtered = applyFilters(state.items, state);
   const grouped = groupItems(filtered);
   const sorted = sortItems(grouped, state.sort);
@@ -96,7 +92,6 @@ async function load({ quiet = false } = {}) {
     merge(await fetchLogs());
     state.restOk = true;
     state.error = null;
-    state.lastUpdatedAt = new Date();
   } catch (err) {
     console.error('[dashboard] load failed', err);
     state.restOk = false;
@@ -105,15 +100,6 @@ async function load({ quiet = false } = {}) {
     state.loading = false;
     render();
   }
-}
-
-async function checkHealth() {
-  try {
-    state.slimsOnline = (await fetchHealth()).slimsOnline;
-  } catch {
-    state.slimsOnline = false;
-  }
-  render();
 }
 
 // ─── Wiring ──────────────────────────────────────────────────────────────────
@@ -180,7 +166,6 @@ function start() {
   render();
 
   load();
-  checkHealth();
 
   let hasOpened = false;
   openStream({
@@ -193,7 +178,6 @@ function start() {
     },
     onEntry: (item) => {
       merge([item], { live: true });
-      state.lastUpdatedAt = new Date();
       render();
     },
     onError: () => {
@@ -203,8 +187,6 @@ function start() {
   });
 
   setInterval(() => { if (navigator.onLine) load({ quiet: true }); }, RESYNC_MS);
-  setInterval(checkHealth, HEALTH_MS);
-  setInterval(() => renderStatus(state), 10_000); // keep "Last update: Ns ago" fresh
 }
 
 start();
