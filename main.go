@@ -19,9 +19,7 @@ import (
 	"github.com/frendyardiansyah31/rfid-middleware/internal/koha"
 	"github.com/frendyardiansyah31/rfid-middleware/internal/logger"
 	"github.com/frendyardiansyah31/rfid-middleware/internal/mirror"
-	"github.com/frendyardiansyah31/rfid-middleware/internal/queue"
 	"github.com/frendyardiansyah31/rfid-middleware/internal/serverinfo"
-	"github.com/frendyardiansyah31/rfid-middleware/internal/sync"
 	"github.com/frendyardiansyah31/rfid-middleware/web"
 	"github.com/kardianos/service"
 )
@@ -82,10 +80,7 @@ func run(ctx context.Context, exeDir string) {
 	if err != nil {
 		log.Fatal("failed to init sqlite cache", logger.F("error", err))
 	}
-	offlineStore := sync.NewSQLiteOfflineStore(sqliteCache.DB())
 	cacheRepo := cache.NewCompositeCache(memCache, sqliteCache)
-
-	eventQueue := queue.NewInMemoryQueue(cfg.Queue.Size)
 
 	historyRepo := history.NewSQLiteRepository(sqliteCache.DB())
 
@@ -127,16 +122,9 @@ func run(ctx context.Context, exeDir string) {
 	engine := decision.NewEngineWithRemote(
 		kohaClient,
 		cacheRepo,
-		eventQueue,
 		enrichingRepo,
 		1*time.Second,
 	)
-
-	// Consumes the engine's event queue. Koha needs no scan events pushed back, so
-	// the sink discards them; the worker and offline store remain as the seam for a
-	// future "send scan history to Koha" sink.
-	worker := sync.NewWorker(eventQueue, sync.NewNoopSink(), offlineStore, log)
-	worker.Start(ctx)
 
 	// Title and cover metadata from the Koha plugin (GET /rfid/biblio): delta
 	// syncs plus a periodic full sync that prunes deleted items.
@@ -218,26 +206,6 @@ func run(ctx context.Context, exeDir string) {
 	_ = serverinfo.WriteFile(info.Config, info)
 
 	time.Sleep(500 * time.Millisecond)
-
-	pendingCount := eventQueue.Pending()
-	if pendingCount > 0 {
-		log.Info("draining pending events to offline store", logger.F("count", pendingCount))
-		for eventQueue.Pending() > 0 {
-			select {
-			case ev := <-eventQueue.Consume():
-				if err := offlineStore.Save(context.Background(), ev); err != nil {
-					log.Error("failed to save pending event",
-						logger.F("rfid", ev.RFID),
-						logger.F("error", err),
-					)
-				}
-			default:
-			}
-		}
-		log.Info("queue drained successfully")
-	} else {
-		log.Info("no pending events in queue")
-	}
 
 	log.Info("closing sqlite connection")
 	sqliteCache.Close()

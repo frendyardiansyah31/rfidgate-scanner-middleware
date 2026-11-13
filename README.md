@@ -44,7 +44,6 @@ c:\frendy-project\golang-rfid-middleware
 │   ├── decision/             # Business Logic / Rules Engine
 │   │   ├── engine.go              # Interface for the decision engine.
 │   │   ├── engine_impl.go         # Implementation: evaluates if RFID scan triggers alarm.
-│   │   ├── mapper.go              # Maps logic outputs to API responses.
 │   │   ├── reason.go              # Constants for decision reasons (e.g., LOAN_VALID, UNKNOWN).
 │   │   ├── result.go              # Output structure of a decision.
 │   │   ├── rule.go                # Interface/structs for individual validation rules.
@@ -71,17 +70,6 @@ c:\frendy-project\golang-rfid-middleware
 │   │   ├── logger.go              # Logging interface definitions.
 │   │   └── zap_logger.go          # Implementation using Uber's Zap logger.
 │   │
-│   ├── queue/                # Event Queuing
-│   │   └── event_queue.go         # In-memory queue for offline events waiting to be synced.
-│   │
-│   ├── sync/                 # Event pipeline
-│   │   ├── event_sink.go          # EventSink interface (where published scan events go).
-│   │   ├── noop_sync.go           # NoopSink: discards events (Koha needs no write-back).
-│   │   ├── offilne_schema.sql     # Database schema for the offline event queue.
-│   │   ├── offline_sqlite.go      # Implementation of offline storage in SQLite.
-│   │   ├── offline_store.go       # Interfaces for offline storage.
-│   │   ├── sqlite_history_repository.go # Adapters for history storage.
-│   │   └── worker.go              # Background worker consuming the event queue.
 │
 ├── .gitignore                # Git ignore rules.
 ├── apispec.yaml              # OpenAPI 3.0.3 specification for the REST API endpoints.
@@ -94,8 +82,7 @@ c:\frendy-project\golang-rfid-middleware
 1. **Startup**: The application loads the configuration, initializes the `zap` logger and the local SQLite database, and starts the Koha clients.
 2. **Mirror sync**: `mirror` warms the in-memory cache from SQLite, then syncs loan status from Koha (`GET /rfid/status`, delta and periodic full). The `biblio` syncer mirrors titles and covers (`GET /rfid/biblio`).
 3. **RFID Scan**: A hardware reader hits `/rfid/check`. The `decision.Engine` asks Koha first (short timeout, no retry). If Koha is unreachable it falls back to the in-memory/SQLite mirror. A loaned item is allowed, a not-loaned item raises the alarm, and an unknown tag (wallet, clothes) is allowed with no trace.
-4. **History**: A known tag's scan is saved to the local SQLite `gate_logs` table (for the dashboard) and pushed to the live SSE stream.
-5. **Event queue**: The decision is also published to an in-memory queue consumed by a worker. Koha needs nothing pushed back, so the sink discards the events today.
+4. **History**: A known tag's scan is saved to the local SQLite `gate_logs` table (for the dashboard) and pushed to the live SSE stream. Nothing is sent back to Koha.
 
 ---
 

@@ -11,7 +11,6 @@ type Config struct {
 	Server ServerConfig `mapstructure:"server"`
 	Cache  CacheConfig  `mapstructure:"cache"`
 	SQLite SQLiteConfig `mapstructure:"sqlite"`
-	Queue  QueueConfig  `mapstructure:"queue"`
 	KohaAPI  KohaAPIConfig  `mapstructure:"koha_api"`
 	Log      LogConfig      `mapstructure:"log"`
 	Web      WebConfig      `mapstructure:"web"`
@@ -35,10 +34,6 @@ type CacheConfig struct {
 
 type SQLiteConfig struct {
 	Path string `mapstructure:"path"`
-}
-
-type QueueConfig struct {
-	Size int `mapstructure:"size"`
 }
 
 // KohaAPIConfig points at the Koha RfidGateApi plugin namespace root, e.g.
@@ -109,7 +104,6 @@ func setDefaults() {
 	viper.SetDefault("cache.memory_max_items", 100000)
 	viper.SetDefault("cache.memory_ttl_hours", 24)
 
-	viper.SetDefault("queue.size", 1000)
 
 	viper.SetDefault("log.level", "info")
 

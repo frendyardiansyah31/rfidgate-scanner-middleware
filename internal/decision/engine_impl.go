@@ -6,7 +6,6 @@ import (
 
 	"github.com/frendyardiansyah31/rfid-middleware/internal/cache"
 	"github.com/frendyardiansyah31/rfid-middleware/internal/history"
-	"github.com/frendyardiansyah31/rfid-middleware/internal/queue"
 	"github.com/frendyardiansyah31/rfid-middleware/internal/rfidtag"
 )
 
@@ -19,7 +18,6 @@ type EngineImpl struct {
 	remote        RemoteLookup
 	remoteTimeout time.Duration
 	cache         cache.Cache
-	queue         queue.EventQueue
 	history       history.Repository
 	timeout       time.Duration
 }
@@ -29,11 +27,10 @@ type EngineImpl struct {
 // behaviour before remote-first lookup existed.
 func NewEngine(
 	cache cache.Cache,
-	queue queue.EventQueue,
 	history history.Repository,
 	timeout time.Duration,
 ) *EngineImpl {
-	return NewEngineWithRemote(nil, cache, queue, history, timeout)
+	return NewEngineWithRemote(nil, cache, history, timeout)
 }
 
 // NewEngineWithRemote wires a request-time authoritative lookup (Koha). A nil
@@ -41,7 +38,6 @@ func NewEngine(
 func NewEngineWithRemote(
 	remote RemoteLookup,
 	cache cache.Cache,
-	queue queue.EventQueue,
 	history history.Repository,
 	timeout time.Duration,
 ) *EngineImpl {
@@ -56,7 +52,6 @@ func NewEngineWithRemote(
 		remote:        remote,
 		remoteTimeout: rt,
 		cache:         cache,
-		queue:         queue,
 		history:       history,
 		timeout:       timeout,
 	}
@@ -148,31 +143,18 @@ func (e *EngineImpl) decideFromStatus(rfid string, status cache.Status) Result {
 // applyUnknown is the "tag not known to us" outcome: Allow (visitor's
 // wallet/clothes, not a tagged book), no signal to the gate.
 //
-// Deliberately leaves NO trace — nothing is published to the sync queue and
-// nothing is written to gate_logs. The legacy gate returned silently for a tag
+// Deliberately leaves NO trace — nothing is written to gate_logs. The legacy gate returned silently for a tag
 // that is not a library item; recording it as "loaned" polluted the logs and
 // the dashboard's permitted count.
 func (e *EngineImpl) applyUnknown(rfid string) Result {
 	return Result{Decision: DecisionAllow, Reason: ReasonUnknownRFID, Signal: false}
 }
 
-func (e *EngineImpl) safePublish(rfid string, status cache.Status) {
-	defer func() {
-		_ = recover() // swallow panic
-	}()
-	e.queue.Publish(rfid, status)
-}
-
 func (e *EngineImpl) applyDecision(rfid string, decision int) {
-	// Mapping decision → cache status (adapter, dipakai untuk publish ke queue saja —
-	// TIDAK ditulis balik ke e.cache: rfid_status adalah ground truth dari sync Koha
+	// Keputusan TIDAK ditulis balik ke e.cache: rfid_status adalah ground truth dari sync Koha
 	// (single source of truth), gate tidak boleh menimpanya. Menulis balik di sini pernah
 	// menyebabkan bug: rfid mentah yang di-scan gate membuat entry cache baru yang
 	// membajak lookup untuk selamanya, mengoverride data Koha yang sebenarnya lebih baru.
-	status := ToCacheStatus(decision)
-
-	// Publish ke queue (non-blocking)
-	e.safePublish(rfid, status)
 
 	// Simpan ke gate_logs (best-effort)
 	if e.history != nil {

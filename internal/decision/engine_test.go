@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/frendyardiansyah31/rfid-middleware/internal/cache"
-	"github.com/frendyardiansyah31/rfid-middleware/internal/queue"
 )
 
 type fakeCache struct {
@@ -34,45 +33,15 @@ func (f *fakeCache) Close() error {
 	return nil
 }
 
-type fakeQueue struct {
-	events []queue.Event
-}
-
-func newFakeQueue() *fakeQueue {
-	return &fakeQueue{}
-}
-
-func (f *fakeQueue) Publish(rfid string, status cache.Status) {
-	f.events = append(f.events, queue.Event{
-		RFID:   rfid,
-		Status: status,
-	})
-}
-
-func (f *fakeQueue) Consume() <-chan queue.Event {
-	return nil
-}
-
-func (f *fakeQueue) Pending() int {
-	return len(f.events)
-}
-
 func TestCheckRFID_CacheMiss_ShouldAlarm(t *testing.T) {
 	cacheRepo := newFakeCache()
-	queue := newFakeQueue()
-
-	engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+	engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 	result := engine.CheckRFID(context.Background(), "RFID12345")
 
 	// Implementation returns Allow for unknown RFID
 	if result.Decision != DecisionAllow {
 		t.Fatalf("expected allow, got %d", result.Decision)
-	}
-
-	// Unknown tag (wallet, clothes): Allow, and NO trace in the sync queue.
-	if len(queue.events) != 0 {
-		t.Fatalf("unknown rfid must not publish an event, got %d", len(queue.events))
 	}
 
 	// rfid_status is ground truth from SLiMS sync — CheckRFID must never write to it
@@ -83,24 +52,14 @@ func TestCheckRFID_CacheMiss_ShouldAlarm(t *testing.T) {
 
 func TestCheckRFID_Loaned_ShouldAllow(t *testing.T) {
 	cacheRepo := newFakeCache()
-	queue := newFakeQueue()
-
 	cacheRepo.Set("RFID123", cache.StatusLoaned)
 
-	engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+	engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 	result := engine.CheckRFID(context.Background(), "RFID123")
 
 	if result.Decision != DecisionAllow {
 		t.Fatalf("expected allow, got %d", result.Decision)
-	}
-
-	if len(queue.events) != 1 {
-		t.Fatalf("expected 1 event")
-	}
-
-	if queue.events[0].Status != ToCacheStatus(DecisionAllow) {
-		t.Fatalf("expected published status %v, got %v", ToCacheStatus(DecisionAllow), queue.events[0].Status)
 	}
 
 	// Ground truth must stay exactly as seeded — CheckRFID is read-only against the cache
@@ -111,11 +70,9 @@ func TestCheckRFID_Loaned_ShouldAllow(t *testing.T) {
 
 func TestCheckRFID_Returned_ShouldAlarm(t *testing.T) {
 	cacheRepo := newFakeCache()
-	queue := newFakeQueue()
-
 	cacheRepo.Set("RFID123", cache.StatusNotLoaned)
 
-	engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+	engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 	result := engine.CheckRFID(context.Background(), "RFID123")
 
@@ -126,23 +83,19 @@ func TestCheckRFID_Returned_ShouldAlarm(t *testing.T) {
 
 func TestEngine_CheckRFID_TableDriven(t *testing.T) {
 	cacheRepo := newFakeCache()
-	eventQueue := newFakeQueue()
-	engine := NewEngine(cacheRepo, eventQueue, nil, 1*time.Second)
+	engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 	tests := []struct {
 		name       string
 		setupCache func()
 		rfid       string
 		want       int
-		wantStatus cache.Status
-		noEvent    bool // unknown tags leave no trace
 	}{
 		{
-			name:       "Cache miss -> allow, no event",
+			name:       "Cache miss -> allow",
 			setupCache: func() {},
 			rfid:       "RFID001",
 			want:       DecisionAllow,
-			noEvent:    true,
 		},
 
 		{
@@ -152,7 +105,6 @@ func TestEngine_CheckRFID_TableDriven(t *testing.T) {
 			},
 			rfid:       "RFID002",
 			want:       DecisionAllow,
-			wantStatus: ToCacheStatus(DecisionAllow),
 		},
 		{
 			name: "Not loaned -> alarm",
@@ -161,7 +113,6 @@ func TestEngine_CheckRFID_TableDriven(t *testing.T) {
 			},
 			rfid:       "RFID003",
 			want:       DecisionAlarm,
-			wantStatus: ToCacheStatus(DecisionAlarm),
 		},
 		{
 			name: "Unknown status in cache -> alarm",
@@ -170,14 +121,11 @@ func TestEngine_CheckRFID_TableDriven(t *testing.T) {
 			},
 			rfid:       "RFID004",
 			want:       DecisionAlarm,
-			wantStatus: ToCacheStatus(DecisionAlarm),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// reset queue
-			eventQueue.events = nil
 			// setup cache
 			tt.setupCache()
 
@@ -186,20 +134,6 @@ func TestEngine_CheckRFID_TableDriven(t *testing.T) {
 			got := engine.CheckRFID(context.Background(), tt.rfid)
 			if got.Decision != tt.want {
 				t.Fatalf("got %d, want %d", got.Decision, tt.want)
-			}
-
-			if tt.noEvent {
-				if len(eventQueue.events) != 0 {
-					t.Fatalf("expected no event, got %d", len(eventQueue.events))
-				}
-			} else {
-				if len(eventQueue.events) != 1 {
-					t.Fatalf("expected 1 event, got %d", len(eventQueue.events))
-				}
-				if eventQueue.events[0].Status != tt.wantStatus {
-					t.Fatalf("expected event status %v, got %v",
-						tt.wantStatus, eventQueue.events[0].Status)
-				}
 			}
 
 			// Ground truth (rfid_status) must never be mutated by a decision
@@ -214,8 +148,7 @@ func TestEngine_CheckRFID_TableDriven(t *testing.T) {
 
 func TestCheckRFID_ContextCancelled(t *testing.T) {
 	cacheRepo := newFakeCache()
-	queue := newFakeQueue()
-	engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+	engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -226,21 +159,11 @@ func TestCheckRFID_ContextCancelled(t *testing.T) {
 		t.Fatalf("expected alarm on cancelled context, got %d", result.Decision)
 	}
 
-	// Now we publish Alarm on timeout/cancel
-	if len(queue.events) != 1 {
-		t.Fatalf("expected 1 event on cancel, got %d", len(queue.events))
-	}
-
-	if queue.events[0].Status != ToCacheStatus(DecisionAlarm) {
-		t.Fatalf("expected published status %v, got %v", ToCacheStatus(DecisionAlarm), queue.events[0].Status)
-	}
 }
 
 func TestCheckRFID_CacheExpired_ShouldAlarm(t *testing.T) {
 	cacheRepo := newFakeCache()
-	queue := newFakeQueue()
-
-	engine := NewEngine(cacheRepo, queue, nil, 100*time.Millisecond)
+	engine := NewEngine(cacheRepo, nil, 100*time.Millisecond)
 
 	cacheRepo.Set("RFID-EXPIRE", cache.StatusLoaned)
 
@@ -256,46 +179,13 @@ func TestCheckRFID_CacheExpired_ShouldAlarm(t *testing.T) {
 
 func TestCheckRFID_DuplicateBurst(t *testing.T) {
 	cacheRepo := newFakeCache()
-	queue := newFakeQueue()
-
 	cacheRepo.Set("RFID-SPAM", cache.StatusNotLoaned)
-	engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+	engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 	for i := 0; i < 10; i++ {
-		engine.CheckRFID(context.Background(), "RFID-SPAM")
-	}
-
-	if len(queue.events) != 10 {
-		t.Fatalf("expected 10 events, got %d", len(queue.events))
-	}
-}
-
-type failingQueue struct{}
-
-func (f *failingQueue) Publish(rfid string, status cache.Status) {
-	panic("queue down")
-}
-
-func (f *failingQueue) Consume() <-chan queue.Event { return nil }
-func (f *failingQueue) Pending() int                { return 0 }
-
-func TestCheckRFID_QueueFailure_ShouldNotCrash(t *testing.T) {
-	cacheRepo := newFakeCache()
-	queue := &failingQueue{}
-	engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("engine panicked on queue failure")
+		if got := engine.CheckRFID(context.Background(), "RFID-SPAM"); got.Decision != DecisionAlarm {
+			t.Fatalf("scan %d: expected alarm, got %d", i, got.Decision)
 		}
-	}()
-
-	// panic is swallowed by safePublish, so this should not be reached if engine crashes
-	result := engine.CheckRFID(context.Background(), "RFID-FAIL")
-
-	// Cache miss -> Allow (default logic)
-	if result.Decision != DecisionAllow {
-		t.Fatalf("expected allow, got %d", result.Decision)
 	}
 }
 
@@ -311,9 +201,7 @@ func (e *errorCache) Close() error { return nil }
 
 func TestCheckRFID_CacheSetError(t *testing.T) {
 	cacheRepo := &errorCache{}
-	queue := newFakeQueue()
-
-	engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+	engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 	result := engine.CheckRFID(context.Background(), "RFID-ERR")
 
@@ -324,8 +212,7 @@ func TestCheckRFID_CacheSetError(t *testing.T) {
 
 func TestCheckRFID_InvalidRFID(t *testing.T) {
 	cacheRepo := newFakeCache()
-	queue := newFakeQueue()
-	engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+	engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 	tests := []string{"", "   ", "\n"}
 
@@ -345,8 +232,7 @@ func TestCheckRFID_InvalidRFID(t *testing.T) {
 // changed. applyDecision must never write to the cache at all.
 func TestCheckRFID_DoesNotCreateRawKeyEntry_WhenMatchedViaSNFallback(t *testing.T) {
 	cacheRepo := newFakeCache()
-	queue := newFakeQueue()
-	engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+	engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 	const plainRFID = "0038029C1301943003F71EB3"
 	const snRFID = "SN" + plainRFID

@@ -24,10 +24,9 @@ func TestDecisionEngineProperties(t *testing.T) {
 
 	properties.Property("Decision engine returns correct decision for all statuses", prop.ForAll(
 		func(rfid string, s cache.Status) bool {
-			// Setup fake cache & queue
+			// Setup fake cache
 			cacheRepo := newFakeCache()
-			queue := newFakeQueue()
-			engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+			engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 			// Simulasi cache sudah ada
 			cacheRepo.Set(rfid, s)
@@ -48,21 +47,7 @@ func TestDecisionEngineProperties(t *testing.T) {
 				}
 			}
 
-			// 2️⃣ Cek event queue — status yang dipublish adalah ToCacheStatus(decision),
-			// bukan status input `s` secara langsung (unknown selalu jadi alarm -> NotLoaned)
-			if len(queue.events) != 1 {
-				t.Logf("Expected 1 event in queue, got %d", len(queue.events))
-				return false
-			}
-
-			wantPublished := ToCacheStatus(decisionCode.Decision)
-			if queue.events[0].RFID != rfid || queue.events[0].Status != wantPublished {
-				t.Logf("Queue event mismatch: got %+v, expected rfid=%s, status=%v",
-					queue.events[0], rfid, wantPublished)
-				return false
-			}
-
-			// 3️⃣ rfid_status adalah ground truth dari SLiMS — CheckRFID tidak boleh menulis balik
+			// rfid_status adalah ground truth dari Koha — CheckRFID tidak boleh menulis balik
 			statusCached, ok := cacheRepo.Get(rfid)
 			if !ok || statusCached != s {
 				t.Logf("Cache must stay untouched: got %v, expected unchanged %v", statusCached, s)

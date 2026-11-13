@@ -27,8 +27,7 @@ func TestDecisionEngine_PropertiesExtended(t *testing.T) {
 		prop.ForAll(
 			func(rfid string, s cache.Status) bool {
 				cacheRepo := newFakeCache()
-				queue := newFakeQueue()
-				engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+				engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 				cacheRepo.Set(rfid, s)
 
@@ -47,13 +46,7 @@ func TestDecisionEngine_PropertiesExtended(t *testing.T) {
 					}
 				}
 
-				wantPublished := ToCacheStatus(decisionCode.Decision)
-				if len(queue.events) != 1 || queue.events[0].RFID != rfid || queue.events[0].Status != wantPublished {
-					t.Logf("Queue event mismatch: %+v, want status %v", queue.events, wantPublished)
-					return false
-				}
-
-				// rfid_status adalah ground truth dari SLiMS — CheckRFID tidak boleh menulis balik
+				// rfid_status adalah ground truth dari Koha — CheckRFID tidak boleh menulis balik
 				statusCached, ok := cacheRepo.Get(rfid)
 				if !ok || statusCached != s {
 					t.Logf("Cache must stay untouched: got %v, expected unchanged %v", statusCached, s)
@@ -73,8 +66,7 @@ func TestDecisionEngine_PropertiesExtended(t *testing.T) {
 		prop.ForAll(
 			func(rfid string) bool {
 				cacheRepo := newFakeCache() // empty cache
-				queue := newFakeQueue()
-				engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+				engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 				decisionCode := engine.CheckRFID(context.Background(), rfid)
 
@@ -82,12 +74,6 @@ func TestDecisionEngine_PropertiesExtended(t *testing.T) {
 				// not a tagged book) — see engine_impl.go's ReasonUnknownRFID branch.
 				if decisionCode.Decision != DecisionAllow {
 					t.Logf("Unknown RFID -> expected DecisionAllow, got %d", decisionCode.Decision)
-					return false
-				}
-
-				// Unknown tags leave no trace: nothing is published.
-				if len(queue.events) != 0 {
-					t.Logf("unknown RFID must not publish, got %+v", queue.events)
 					return false
 				}
 
@@ -113,8 +99,7 @@ func TestDecisionEngine_PropertiesExtended(t *testing.T) {
 				}
 
 				cacheRepo := newFakeCache()
-				queue := newFakeQueue()
-				engine := NewEngine(cacheRepo, queue, nil, 1*time.Second)
+				engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 				// rfids isn't guaranteed unique — cacheRepo.Set is last-write-wins per key,
 				// so the expected status per rfid must follow the same rule, not statuses[i].
@@ -140,11 +125,6 @@ func TestDecisionEngine_PropertiesExtended(t *testing.T) {
 							return false
 						}
 					}
-				}
-
-				if len(queue.events) != len(rfids) {
-					t.Logf("Queue event count mismatch, got %d, expected %d", len(queue.events), len(rfids))
-					return false
 				}
 
 				return true

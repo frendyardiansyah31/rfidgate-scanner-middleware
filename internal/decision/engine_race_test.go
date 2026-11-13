@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/frendyardiansyah31/rfid-middleware/internal/cache"
-	"github.com/frendyardiansyah31/rfid-middleware/internal/queue"
 )
 
 type raceSafeCache struct {
@@ -37,45 +36,10 @@ func (c *raceSafeCache) Set(rfid string, status cache.Status) error {
 
 func (c *raceSafeCache) Close() error { return nil }
 
-type raceSafeQueue struct {
-	mu     sync.Mutex
-	events []queue.Event
-}
-
-func newRaceSafeQueue() *raceSafeQueue {
-	return &raceSafeQueue{}
-}
-
-func (q *raceSafeQueue) Publish(rfid string, status cache.Status) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.events = append(q.events, queue.Event{
-		RFID:   rfid,
-		Status: status,
-	})
-}
-
-func (q *raceSafeQueue) Consume() <-chan queue.Event {
-	return nil
-}
-
-func (q *raceSafeQueue) Count() int {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return len(q.events)
-}
-
-func (q *raceSafeQueue) Pending() int {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return len(q.events)
-}
-
 func TestDecisionEngine_RaceCondition(t *testing.T) {
 	cacheRepo := newRaceSafeCache()
-	queueRepo := newRaceSafeQueue()
 
-	engine := NewEngine(cacheRepo, queueRepo, nil, 1*time.Second)
+	engine := NewEngine(cacheRepo, nil, 1*time.Second)
 
 	// preload cache
 	cacheRepo.Set("RFID-ALLOW", cache.StatusLoaned)
@@ -98,8 +62,4 @@ func TestDecisionEngine_RaceCondition(t *testing.T) {
 	}
 
 	wg.Wait()
-
-	if queueRepo.Count() != goroutines {
-		t.Fatalf("expected %d events, got %d", goroutines, queueRepo.Count())
-	}
 }

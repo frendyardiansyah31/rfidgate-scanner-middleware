@@ -13,9 +13,6 @@ cache:
 sqlite:
   path: "edge.db"     # dibuat otomatis di folder exe saat pertama jalan
 
-queue:
-  size: 1000
-
 library:
   backend: "koha"
 

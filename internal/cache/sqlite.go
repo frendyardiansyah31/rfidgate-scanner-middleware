@@ -147,12 +147,6 @@ func (c *SQLiteCache) initSchema() error {
 			status INTEGER NOT NULL,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
-
-		CREATE TABLE IF NOT EXISTS offline_events (
-			rfid TEXT NOT NULL,
-			status INTEGER NOT NULL,
-			created_at DATETIME NOT NULL
-		);
 	`)
 	return err
 }

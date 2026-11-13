@@ -81,9 +81,7 @@ func TestCheckRFID_RemoteFound_UsesRemote_SkipsCache(t *testing.T) {
 	rem := newFakeRemote()
 	rem.byKey["TAG1"] = cache.StatusLoaned
 	spy := newSpyCache()
-	q := newFakeQueue()
-
-	e := NewEngineWithRemote(rem, spy, q, nil, 1*time.Second)
+	e := NewEngineWithRemote(rem, spy, nil, 1*time.Second)
 	got := e.CheckRFID(context.Background(), "TAG1")
 
 	if got.Decision != DecisionAllow || got.Reason != ReasonLoanValid {
@@ -92,16 +90,13 @@ func TestCheckRFID_RemoteFound_UsesRemote_SkipsCache(t *testing.T) {
 	if n := atomic.LoadInt32(&spy.gets); n != 0 {
 		t.Fatalf("cache was consulted (%d Get calls) even though remote was authoritative", n)
 	}
-	if len(q.events) != 1 {
-		t.Fatalf("want 1 queue event, got %d", len(q.events))
-	}
 }
 
 func TestCheckRFID_RemoteFound_NotLoaned_Alarms(t *testing.T) {
 	rem := newFakeRemote()
 	rem.byKey["TAG2"] = cache.StatusNotLoaned
 
-	e := NewEngineWithRemote(rem, newSpyCache(), newFakeQueue(), nil, time.Second)
+	e := NewEngineWithRemote(rem, newSpyCache(), nil, time.Second)
 	got := e.CheckRFID(context.Background(), "TAG2")
 
 	if got.Decision != DecisionAlarm || !got.Signal || got.Reason != ReasonNotLoan {
@@ -116,7 +111,7 @@ func TestCheckRFID_RemoteError_FallsBackToCache(t *testing.T) {
 	c := newFakeCache()
 	c.Set("TAG3", cache.StatusLoaned)
 
-	e := NewEngineWithRemote(rem, c, newFakeQueue(), nil, time.Second)
+	e := NewEngineWithRemote(rem, c, nil, time.Second)
 	got := e.CheckRFID(context.Background(), "TAG3")
 
 	if got.Decision != DecisionAllow || got.Reason != ReasonLoanValid {
@@ -129,7 +124,7 @@ func TestCheckRFID_RemoteError_CacheMiss_Unknown(t *testing.T) {
 	rem := newFakeRemote()
 	rem.err = errors.New("i/o timeout")
 
-	e := NewEngineWithRemote(rem, newFakeCache(), newFakeQueue(), nil, time.Second)
+	e := NewEngineWithRemote(rem, newFakeCache(), nil, time.Second)
 	got := e.CheckRFID(context.Background(), "NOPE")
 
 	if got.Decision != DecisionAllow || got.Reason != ReasonUnknownRFID {
@@ -145,7 +140,7 @@ func TestCheckRFID_RemoteReachableNotFound_NoCacheFallback(t *testing.T) {
 	spy.Set("GHOST", cache.StatusLoaned)   // stale mirror claims it's fine
 	spy.Set("SNGHOST", cache.StatusLoaned) // ...and under the SN key too
 
-	e := NewEngineWithRemote(rem, spy, newFakeQueue(), nil, time.Second)
+	e := NewEngineWithRemote(rem, spy, nil, time.Second)
 	got := e.CheckRFID(context.Background(), "GHOST")
 
 	if got.Decision != DecisionAllow || got.Reason != ReasonUnknownRFID {
@@ -167,7 +162,7 @@ func TestCheckRFID_RemoteTimeout_FallsBackFast(t *testing.T) {
 	c := newFakeCache()
 	c.Set("TAG6", cache.StatusNotLoaned)
 
-	e := NewEngineWithRemote(rem, c, newFakeQueue(), nil, time.Second)
+	e := NewEngineWithRemote(rem, c, nil, time.Second)
 	e.remoteTimeout = 30 * time.Millisecond // white-box: tighten for the test
 
 	start := time.Now()
@@ -188,7 +183,7 @@ func TestCheckRFID_RemoteSingleCall_NoSNProbe(t *testing.T) {
 	rem := newFakeRemote()
 	rem.byKey["TAG7"] = cache.StatusLoaned
 
-	e := NewEngineWithRemote(rem, newSpyCache(), newFakeQueue(), nil, time.Second)
+	e := NewEngineWithRemote(rem, newSpyCache(), nil, time.Second)
 	got := e.CheckRFID(context.Background(), "TAG7")
 
 	if got.Decision != DecisionAllow || got.Reason != ReasonLoanValid {
@@ -227,39 +222,31 @@ func (s *spyHistory) GetRecent(int) ([]history.HistoryLog, error) { return nil, 
 
 func TestCheckRFID_Unknown_LeavesNoTrace(t *testing.T) {
 	rem := newFakeRemote() // reachable, empty => tag not found
-	q := newFakeQueue()
 	h := &spyHistory{}
 
-	e := NewEngineWithRemote(rem, newSpyCache(), q, h, time.Second)
+	e := NewEngineWithRemote(rem, newSpyCache(), h, time.Second)
 	got := e.CheckRFID(context.Background(), "WALLET")
 	time.Sleep(50 * time.Millisecond) // history insert is async; give it a chance to (wrongly) run
 
 	if got.Decision != DecisionAllow || got.Reason != ReasonUnknownRFID || got.Signal {
 		t.Fatalf("want allow/unknown/no-signal, got %+v", got)
 	}
-	if len(q.events) != 0 {
-		t.Fatalf("unknown tag must not publish, got %d events", len(q.events))
-	}
 	if n := atomic.LoadInt32(&h.count); n != 0 {
 		t.Fatalf("unknown tag must not write history, got %d inserts", n)
 	}
 }
 
-// Known tags still leave a trace (history + queue).
+// Known tags still leave a trace (history).
 func TestCheckRFID_Known_StillRecorded(t *testing.T) {
 	rem := newFakeRemote()
 	rem.byKey["BOOK"] = cache.StatusNotLoaned
-	q := newFakeQueue()
 	h := &spyHistory{done: make(chan struct{})}
 
-	e := NewEngineWithRemote(rem, newSpyCache(), q, h, time.Second)
+	e := NewEngineWithRemote(rem, newSpyCache(), h, time.Second)
 	got := e.CheckRFID(context.Background(), "BOOK")
 
 	if got.Decision != DecisionAlarm {
 		t.Fatalf("want alarm, got %+v", got)
-	}
-	if len(q.events) != 1 {
-		t.Fatalf("known tag must publish 1 event, got %d", len(q.events))
 	}
 	select {
 	case <-h.done:
@@ -274,7 +261,7 @@ func TestCheckRFID_HistoryPanic_IsRecovered(t *testing.T) {
 	rem.byKey["BOOK"] = cache.StatusLoaned
 	h := &spyHistory{boom: true, done: make(chan struct{})}
 
-	e := NewEngineWithRemote(rem, newSpyCache(), newFakeQueue(), h, time.Second)
+	e := NewEngineWithRemote(rem, newSpyCache(), h, time.Second)
 	e.CheckRFID(context.Background(), "BOOK")
 
 	select {
@@ -294,7 +281,7 @@ func TestCheckRFID_LocalMirror_PrefixedAndPlainScan(t *testing.T) {
 		c := newFakeCache()
 		c.Set("TAG8", cache.StatusNotLoaned) // normalised key
 
-		e := NewEngineWithRemote(rem, c, newFakeQueue(), nil, time.Second)
+		e := NewEngineWithRemote(rem, c, nil, time.Second)
 		got := e.CheckRFID(context.Background(), scanned)
 
 		if got.Decision != DecisionAlarm || got.Reason != ReasonNotLoan {
@@ -303,16 +290,14 @@ func TestCheckRFID_LocalMirror_PrefixedAndPlainScan(t *testing.T) {
 	}
 }
 
-// Test 8: concurrent requests against a flapping remote — no race, one event
-// per call. Run the suite with -race.
+// Test 8: concurrent requests against a flapping remote — no race. Run the suite with -race.
 func TestCheckRFID_RemoteFlaky_Concurrent(t *testing.T) {
 	rem := &flakyRemote{}
 	c := newRaceSafeCache()
 	c.Set("R", cache.StatusLoaned)
 	c.Set("SNR", cache.StatusLoaned)
-	q := newRaceSafeQueue()
 
-	e := NewEngineWithRemote(rem, c, q, nil, time.Second)
+	e := NewEngineWithRemote(rem, c, nil, time.Second)
 
 	const n = 100
 	var wg sync.WaitGroup
@@ -324,8 +309,4 @@ func TestCheckRFID_RemoteFlaky_Concurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-
-	if q.Count() != n {
-		t.Fatalf("want %d events, got %d", n, q.Count())
-	}
 }

@@ -97,9 +97,6 @@ cache:
 sqlite:
   path: "edge.db"    # relatif terhadap folder config.yaml, otomatis di-resolve absolute
 
-queue:
-  size: 1000
-
 library:
   backend: "koha"      # opsional dan diabaikan; Koha satu-satunya backend
 
