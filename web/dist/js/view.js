@@ -43,7 +43,7 @@ export function renderStatus(s) {
 }
 
 function metricCard({ label, labelClass = 'text-slate-600', value, valueClass = 'text-slate-900', unit, unitClass = 'text-slate-600', cardClass = 'border-slate-200', dot = '' }) {
-  return `<div class="bg-white p-3 rounded-lg border ${cardClass} shadow-sm flex flex-col justify-between"><div>
+  return `<div class="bg-white p-3 border ${cardClass} shadow-sm flex flex-col justify-between"><div>
     <div class="flex items-center justify-between">
       <span class="text-xs font-semibold uppercase tracking-wider ${labelClass}">${label}</span>${dot}
     </div>
@@ -70,7 +70,7 @@ export function renderMetrics(s, items) {
       unit: 'alarms raised', unitClass: 'text-rose-900 font-semibold', cardClass: 'border-rose-200 bg-rose-50/20',
       dot: '<span aria-hidden="true" class="w-2 h-2 rounded-full bg-rose-600 animate-ping"></span>',
     })
-    + `<div class="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between"><div>
+    + `<div class="bg-white p-3 border border-slate-200 shadow-sm flex flex-col justify-between"><div>
         <span class="text-xs font-semibold uppercase tracking-wider text-slate-600">System Status</span>
         <div class="mt-1 flex items-center gap-1.5">${dot(s.restOk || s.streamLive)}<span class="text-sm font-bold text-slate-900">Middleware</span></div>
         <div class="mt-1 flex items-center gap-1.5">${dot(s.slimsOnline)}<span class="text-sm font-bold text-slate-900">SLiMS ILS</span></div>
@@ -85,10 +85,10 @@ export function renderHead(sort) {
     if (c.sort) {
       const active = sort.key === c.sort;
       const ic = active ? (sort.dir === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-up-down';
-      inner = `<button type="button" data-sort="${c.sort}" class="inline-flex items-center gap-1 uppercase tracking-wider text-xs font-bold text-slate-700 hover:text-slate-900 focus:outline-none">
-        ${esc(c.label)}${icon(ic, `w-4 h-4 ${active ? 'text-slate-600' : 'text-slate-400'}`)}</button>`;
+      inner = `<button type="button" data-sort="${c.sort}" class="inline-flex items-center gap-1 uppercase tracking-wider text-xs font-bold text-white hover:text-slate-200 focus:outline-none">
+        ${esc(c.label)}${icon(ic, `w-4 h-4 ${active ? 'text-white' : 'text-white/50'}`)}</button>`;
     }
-    return `<th class="py-4 px-4 uppercase tracking-wider text-xs font-bold text-slate-700 whitespace-nowrap">${inner}</th>`;
+    return `<th class="py-4 px-4 uppercase tracking-wider text-xs font-bold text-white whitespace-nowrap">${inner}</th>`;
   }).join('');
 }
 
@@ -164,7 +164,7 @@ export function renderError(message) {
   $('filters').hidden = show;
   $('table-section').hidden = show;
   if (!show) return;
-  box.innerHTML = `<section class="bg-white rounded-lg border border-slate-200 shadow-sm">
+  box.innerHTML = `<section class="bg-white border border-slate-200 shadow-sm">
     <div class="flex flex-col items-center justify-center py-16 gap-4 text-center">
       <div class="p-4 bg-rose-50 rounded-full text-rose-500">${icon('alert-triangle', 'w-8 h-8')}</div>
       <div>
